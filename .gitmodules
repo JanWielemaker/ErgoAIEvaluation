@@ -1,0 +1,6 @@
+[submodule "ergoAIstudio2"]
+	path = ergoAIstudio2
+	url = git@github.com:mcalejo/ergoAIstudio2
+[submodule "ErgoEngine"]
+	path = ErgoEngine
+	url = git@github.com:ErgoAI/ErgoEngine.git
