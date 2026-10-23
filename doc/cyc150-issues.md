@@ -15,9 +15,21 @@ how to run the programs and their timings, see `ergoaip-performance.md`.
 | 1 | The corpus uses SILK syntax that ErgoAI 3.01 rejects | worked around by `scripts/modernize.sh` |
 | 2 | `isGround` is always false on ErgoAI 3.01, so the core rules never fire | fixed in `scripts/modernize.sh` |
 | 3 | The KB depends on an XSB flag that no longer exists | translated in `scripts/modernize.sh`, does not help on its own |
-| 4 | With the core rules firing, evaluation does not terminate | **open** |
-| 5 | ergoAIp silently drops part of the original core rules | open, explains why ergoAIp "passes" |
+| 4 | With the core rules firing, evaluation does not terminate | **ergoAIp: fixed**; **XSB: open** |
+| 5 | ergoAIp silently drops part of the original core rules | moot on the modernized copy |
 | 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | not fixed |
+| 7 | ergoAIp lacked some XSB/HiLog primitives the core uses | fixed in ergoAIp |
+
+**Current state on ergoAIp** (a copy made with today's `modernize.sh`;
+ergoAIp at `ergoAIstudio2` commit f5d6960):
+
+- all 143 parseable programs run to the end;
+- 44 pass and 99 miss the same 2 golden lines;
+- the median run is 15 s and the slowest 95 s;
+- `whatisduplicationstatus` passes in 13.5 s at 3.3 GB.
+
+**Current state on XSB:** `whatisduplicationstatus` still does not
+finish within 30 minutes (issue 4).
 
 ## 1. The corpus is written in SILK, not ErgoAI 3.01
 
@@ -100,9 +112,29 @@ KB needs that to terminate (see issue 4).  The flag no longer exists:
 
 The translation does not make the program terminate (issue 4).
 
-## 4. Evaluation does not terminate (open)
+## 4. Evaluation does not terminate (fixed on ergoAIp, open on XSB)
 
 With issue 2 fixed, the core rules fire, and evaluation runs away.
+
+**Cause on ergoAIp: Cyc's `isa/2` collides with ErgoAIp's encoding of
+`:`.**  ergo2p turns the F-logic `a : b` into the term `isa(a, b)`, and a
+user-written `isa(a, b)` is the very same term.  The compiler therefore
+treats the corpus's `isa(...)` arguments as membership molecules and
+pulls them out of their argument.  The source rule
+
+```
+forwardSentence(isa(?TERM, UnknownScalarInterval)) :-
+    removalSentence(hypotheticalTerm(?TERM)),
+    removalSentence(isa(?TERM, ScalarInterval)).
+```
+
+is installed as `forwardSentence(A) :- removalSentence(hypotheticalTerm(A)),
+…`.  Each application of that rule wraps one more `hypotheticalTerm`
+around its argument.  `modernize.sh` now renames `isa(` to `cycIsa(`
+throughout the copy.  The rename is harmless on XSB, but it does not help
+there: XSB's runaway has a different, still unknown, cause.
+
+The original diagnosis follows.
 
 **On XSB** (modernized copy, `whatisduplicationstatus`):
 
@@ -130,7 +162,7 @@ after 90 s.  That unbounded term growth is the non-termination.  The
 argumentation theory then multiplies it, with one `holds/2` table per
 literal.
 
-**Still unknown:** which rule builds the nested terms.  The candidates are
+**Was unknown (now found for ergoAIp, see above):** which rule builds the nested terms.  The candidates are
 the rules that construct formulas from unbound parts, in
 `core_files/core-rules.flr`:
 
@@ -179,3 +211,24 @@ Line 1 of `kbq-cpttest-cytokinesisisthedivisionofonecellintotwo-0.flr`
 reads `:\ use_argumentation_theory{ogcle}`, a typo for `:-`.  Both
 engines reject the file: ergoAIp with `convert_incomplete`, XSB with a
 syntax error.
+
+## 7. ergoAIp lacked some primitives the core uses (fixed)
+
+Once the `isa` collision was out of the way, the core rules needed four
+fixes in ergoAIp (`ergoAIstudio2` commit f5d6960):
+
+- **`arg0/3` under `@\prolog`.**  This is XSB's HiLog `arg/3`: index 1 is
+  the functor, index K+1 the K-th argument.  The core reads a formula's
+  relation with it.
+- **`=..` on a HiLog term.**  Decomposition gives `[hilog(F)|Args]`, as the
+  manual specifies.  Construction needs a proper list and fails
+  otherwise.
+- **Compound HiLog functors.**  `TypeCapableFn(behaviorCapable)(?X, …)`
+  must be built as `flapply(F, Args…)`; calling Prolog's `=..` raised a
+  type error, which aborted four programs.
+- **Late open-head bridges.**  A rule with an open functor, like
+  `?P(?A1, ?A2) :- …`, must also cover predicates that appear only after
+  the rule was installed.
+
+ergoAIp's unit suites and its golden smoke set are unchanged by these
+fixes.

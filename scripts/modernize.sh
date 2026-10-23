@@ -33,6 +33,12 @@ sed -i -E -e 's|[\_]"(urn:[^"]*)"|"\1"^^\\iri|g' -e 's|setsemantics\{equality\(n
   $D/cyc150/core_files/*.flr $D/cyc150/kbq-*.flr
 # 3.01 rejects variable tags: @{?, Iri} -> @{Iri}
 sed -i -E 's|@\{\?, *("[^"]*"\^\^[\]iri)\}|@{\1}|g' $D/cyc150/core_files/*.flr $D/cyc150/kbq-*.flr
+# Cyc's isa/2 is an ordinary predicate and term here, but ergoAIp encodes the
+# F-logic `a : b` as isa(a,b) and cannot tell the two apart: an isa(...)
+# argument is then denested as a molecule, which makes rules such as
+# forwardSentence(isa(?T,C)) :- removalSentence(hypotheticalTerm(?T)), ...
+# nest hypotheticalTerm(...) without bound.  Rename it consistently.
+sed -i -E 's/(^|[ (,])isa\(/\1cycIsa(/g' $D/cyc150/core_files/*.flr $D/cyc150/kbq-*.flr $D/aux_files/*.flr
 # SILK connectives in rule bodies
 python3 -I "$HERE/silkconn.py" $D/cyc150/core_files/*.flr $D/cyc150/kbq-*.flr
 # \io predicates are non-transactional in 3.01

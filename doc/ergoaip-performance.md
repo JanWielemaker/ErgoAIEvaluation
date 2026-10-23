@@ -64,6 +64,32 @@ theories.
 `CYC_tests` and `PaulH_tests` contain only helper files, so they have
 nothing to run.
 
+### The modernized cyc150 corpus (with the full rule set)
+
+The table above uses the original corpus, on which ergoAIp drops 77 of
+the core rules.  A copy made with `scripts/modernize.sh` keeps all of
+them.  On ergoAIp from `ergoAIstudio2` f5d6960 onward, every one of the
+143 parseable programs runs to the end:
+
+| | |
+|---|---|
+| passes | 44 |
+| miss the same 2 golden lines | 99 |
+| median time | 15 s, about 110M inferences |
+| slowest program | 95 s |
+| `whatisduplicationstatus` | passes in 13.5 s, 3.3 GB |
+
+This makes the whole suite usable as a tabling workload.  To reproduce:
+
+```
+cp -r ErgoEngine/ErgoAI-performance /tmp/perf
+scripts/modernize.sh /tmp/perf
+swipl scripts/ergoaip_perf.pl /tmp/perf/cyc150
+```
+
+`cyc150-issues.md` explains what the rewrite and the ergoAIp fixes
+address.
+
 For tabling work, the best candidate is `whatisduplicationstatus`.  It is
 the only large program that does real query work:
 
