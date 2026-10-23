@@ -13,6 +13,7 @@ for f in $D/cyc150/*.flr $D/cyc150/core_files/*.flr; do
 done
 for f in $D/cyc150/kbq-*.flr; do
   sed -i -E \
+    -e 's|^:\\ use_argumentation_theory|:- use_argumentation_theory|' \
     -e 's|%mustDefine\(|mustDefine(|g' \
     -e 's|^\?- [\]optimize\(class_expressions, main\) *\.|// & (not an ErgoAI 3.01 optimizer option)|' \
     "$f"

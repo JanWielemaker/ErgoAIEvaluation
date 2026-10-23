@@ -11,8 +11,9 @@
 
     Options:
         --timeout=Secs   per-file wall-clock limit (default 600)
-        --out=File       also write the results as TSV
-                         (file, mode, verdict, boot-ms, run-ms, inferences)
+        --out=File       also write the results as TSV (file, mode, verdict,
+                         boot, run, convert, load and solve ms, inferences,
+                         solve inferences)
         --in-process     run all files in this process instead of one fresh
                          swipl per file (faster to start, but KB state can
                          leak between files)
@@ -28,8 +29,13 @@
     test_one_file.sh runs it: load, %test, compare the sorted `temp` with
     the golden.  This uses ergoAIp's own golden runner (src/golden.pl), so
     verdicts match the project's golden scoreboard.  Any other file is
-    loaded, which also runs its `?-` queries, and only timed.  Run times
-    include compilation.  ergo2p conversion is cached across runs
+    loaded, which also runs its `?-` queries, and only timed.
+
+    The run time of a golden program is split into CONVERT (ergo2p), LOAD
+    (compilation plus the file's own load-time `?-` queries, which for a
+    cyc150 program include loading the shared core KB) and SOLVE (`%test`).
+    A plain load is reported as one LOAD phase.  Run times include
+    compilation.  ergo2p conversion is cached across runs
     (src/ergo2p/conv_cache.pl); set ERGOAIP_CONV_CACHE=off to time it.
 */
 
@@ -104,14 +110,13 @@ set_lib_path :-
         setenv('ERGOAIP_LIB_PATH', P)
     ).
 
-/*  golden.pl stops %test after ERGOAIP_TIME_LIMIT seconds (default 60),
-    long before our own --timeout.  Raise it to match.                   */
+/*  golden.pl stops %test after ERGOAIP_TIME_LIMIT seconds (default 60)
+    and the load after ERGOAIP_LOAD_TIME_LIMIT (default 20), long before
+    our own --timeout.  Raise both to match.                             */
 set_test_time_limit(Opts) :-
-    (   getenv('ERGOAIP_TIME_LIMIT', _)
-    ->  true
-    ;   ( option(timeout(TO), Opts) -> true ; TO = 600 ),
-        setenv('ERGOAIP_TIME_LIMIT', TO)
-    ).
+    ( option(timeout(TO), Opts) -> true ; TO = 600 ),
+    forall(member(Var, ['ERGOAIP_TIME_LIMIT', 'ERGOAIP_LOAD_TIME_LIMIT']),
+           (   getenv(Var, _) -> true ; setenv(Var, TO) )).
 
 expand_path(Path, Files, Tail) :-
     absolute_file_name(Path, Abs, [file_errors(fail), access(exist),
@@ -138,13 +143,15 @@ run_and_report(Opts, N, File, I-Rs, I1-[R|Rs]) :-
     ->  run_in_process(File, Opts, R)
     ;   run_child(File, Opts, R)
     ),
-    R = result(_, Mode, Verdict, _Boot, Ms, Inf),
+    R = result(_, Mode, Verdict, _Boot, Ms, Inf, Phases),
     perf_dir(PD),
     (   atom_concat(PD, '/', PDS), atom_concat(PDS, Rel, File) -> true
     ;   Rel = File
     ),
-    format("[~d/~d] ~w~t~92| ~w ~w ~t~12+ ~t~1f s~10+ ~t~D inf~18+~n",
-           [I, N, Rel, Mode, Verdict, Ms/1000, Inf]),
+    phase_ms(load, Phases, LMs), phase_ms(test, Phases, SMs),
+    format("[~d/~d] ~w~t~92| ~w ~w ~t~12+ ~t~1f s~10+ ~t~D inf~18+  \c
+            load ~t~1f s~9+  solve ~t~1f s~9+~n",
+           [I, N, Rel, Mode, Verdict, Ms/1000, Inf, LMs/1000, SMs/1000]),
     flush_output.
 
 		 /*******************************
@@ -174,10 +181,10 @@ run_child(File, Opts, Result) :-
     Ms is (T1-T0)*1000,
     (   Status == timeout
     ->  process_kill(Pid, kill), process_wait(Pid, _),
-        Result = result(File, '-', timeout, 0, Ms, 0)
+        Result = result(File, '-', timeout, 0, Ms, 0, [])
     ;   catch(read_file_to_terms(ResFile, [Result0], []), _, fail)
     ->  Result = Result0
-    ;   Result = result(File, '-', crashed(Status), 0, Ms, 0)
+    ;   Result = result(File, '-', crashed(Status), 0, Ms, 0, [])
     ),
     catch(delete_file(ResFile), _, true).
 
@@ -186,20 +193,21 @@ child([File], Opts) :-
     !,
     set_table_space(Opts),
     boot(BootMs),
-    run_file(File, Opts, Mode, Verdict, Ms, Inf),
+    run_file(File, Opts, Mode, Verdict, Ms, Inf, Phases),
     setup_call_cleanup(
         open(ResFile, write, S),
-        format(S, "~q.~n", [result(File, Mode, Verdict, BootMs, Ms, Inf)]),
+        format(S, "~q.~n", [result(File, Mode, Verdict, BootMs, Ms, Inf, Phases)]),
         close(S)),
     halt(0).
 child(_, _) :-
     format(user_error, "usage: --child --result=File KB~n", []),
     halt(2).
 
-run_in_process(File, Opts, result(File, Mode, Verdict, BootMs, Ms, Inf)) :-
+run_in_process(File, Opts,
+               result(File, Mode, Verdict, BootMs, Ms, Inf, Phases)) :-
     set_table_space(Opts),
     boot(BootMs),
-    run_file(File, Opts, Mode, Verdict, Ms, Inf).
+    run_file(File, Opts, Mode, Verdict, Ms, Inf, Phases).
 
 set_table_space(Opts) :-
     ( option(table_space(TS), Opts) -> true ; TS = '8g' ),
@@ -232,14 +240,21 @@ boot(Ms) :-
 		 *          RUN ONE KB          *
 		 *******************************/
 
-run_file(File, Opts, Mode, Verdict, Ms, Inf) :-
+run_file(File, Opts, Mode, Verdict, Ms, Inf, Phases) :-
     (   golden:golden_file(File, Old), exists_file(Old)
     ->  Mode = golden,
-        measure(golden_verdict(File, Verdict), Ms, Inf)
+        measure(golden_verdict(File, Verdict), Ms, Inf),
+        golden:last_phases(Phases)
     ;   Mode = load,
         ( option(timeout(TO), Opts) -> true ; TO = 600 ),
-        measure(load_verdict(File, TO, Verdict), Ms, Inf)
+        measure(load_verdict(File, TO, Verdict), Ms, Inf),
+        Phases = [load-ms(Ms, Inf)]
     ).
+
+phase_ms(P, Phases, Ms) :-
+    ( memberchk(P-ms(Ms0, _), Phases) -> Ms = Ms0 ; Ms = 0 ).
+phase_inf(P, Phases, Inf) :-
+    ( memberchk(P-ms(_, Inf0), Phases) -> Inf = Inf0 ; Inf = 0 ).
 
 measure(Goal, Ms, Inf) :-
     statistics(inferences, I0),
@@ -284,12 +299,17 @@ load_verdict(File, TO, Verdict) :-
 		 *******************************/
 
 summary(Rs) :-
-    aggregate_all(sum(Ms), member(result(_,_,_,_,Ms,_), Rs), TotalMs),
-    aggregate_all(sum(Inf), member(result(_,_,_,_,_,Inf), Rs), TotalInf),
-    findall(K, ( member(result(_,_,V,_,_,_), Rs), verdict_key(V, K) ), Ks0),
+    aggregate_all(sum(Ms), member(result(_,_,_,_,Ms,_,_), Rs), TotalMs),
+    aggregate_all(sum(Inf), member(result(_,_,_,_,_,Inf,_), Rs), TotalInf),
+    aggregate_all(sum(L), ( member(result(_,_,_,_,_,_,P), Rs),
+                            phase_ms(load, P, L) ), LoadMs),
+    aggregate_all(sum(S), ( member(result(_,_,_,_,_,_,P), Rs),
+                            phase_ms(test, P, S) ), SolveMs),
+    findall(K, ( member(result(_,_,V,_,_,_,_), Rs), verdict_key(V, K) ), Ks0),
     msort(Ks0, Ks),
     clumped(Ks, Counts),
     format("~nTotal run time ~1f s, ~D inferences~n", [TotalMs/1000, TotalInf]),
+    format("  load ~1f s, solve ~1f s~n", [LoadMs/1000, SolveMs/1000]),
     forall(member(K-C, Counts), format("  ~w~t~20|~d~n", [K, C])).
 
 verdict_key(V, K) :- compound(V), !, functor(V, K, _).
@@ -298,8 +318,12 @@ verdict_key(V, V).
 write_tsv(File, Rs) :-
     setup_call_cleanup(
         open(File, write, S),
-        ( format(S, "file\tmode\tverdict\tboot_ms\trun_ms\tinferences~n", []),
-          forall(member(result(F, Mode, V, B, Ms, Inf), Rs),
-                 format(S, "~w\t~w\t~w\t~0f\t~0f\t~d~n", [F, Mode, V, B, Ms, Inf])) ),
+        ( format(S, "file\tmode\tverdict\tboot_ms\trun_ms\tconvert_ms\t\c
+                     load_ms\tsolve_ms\tinferences\tsolve_inferences~n", []),
+          forall(member(result(F, Mode, V, B, Ms, Inf, P), Rs),
+                 ( phase_ms(convert, P, CMs), phase_ms(load, P, LMs),
+                   phase_ms(test, P, SMs), phase_inf(test, P, SInf),
+                   format(S, "~w\t~w\t~w\t~0f\t~0f\t~0f\t~0f\t~0f\t~d\t~d~n",
+                          [F, Mode, V, B, Ms, CMs, LMs, SMs, Inf, SInf]) )) ),
         close(S)),
     format("wrote ~w~n", [File]).

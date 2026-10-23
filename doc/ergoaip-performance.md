@@ -24,7 +24,7 @@ skipped.
 | `--timeout=Secs` | wall-clock limit per program (default 600) |
 | `--stack-limit=Sz` | Prolog stack limit per program (default `16g`) |
 | `--table-space=Sz` | table space per program (default `8g`) |
-| `--out=File` | also write the results as TSV |
+| `--out=File` | also write the results as TSV, with the phase times as columns |
 | `--in-process` | run every program in the script's own process |
 | `--verbose` | show the engine's stderr |
 
@@ -32,8 +32,24 @@ A program that has a golden file (`<name>_old`) is run the way ErgoAI's
 `test_one_file.sh` runs it: load the file, run `%test`, and compare the
 sorted `temp` output with the golden file.  It uses ergoAIp's own
 `src/golden.pl`.  Any other program is only loaded, which also runs its
-`?-` queries.  The reported times include compilation, which ergoAIp
-does not cache.
+`?-` queries.
+
+For a golden program the run time is split into three phases:
+
+- **convert:** ergo2p's translation of the top-level file;
+- **load:** compilation, plus the file's own load-time `?-` queries.  For
+  a `cyc150` program these load (and convert) the shared core KB.
+- **solve:** `%test`.
+
+Each result line ends with `load … s  solve … s`.  The TSV adds
+`convert_ms`, `load_ms`, `solve_ms` and `solve_inferences`, and the
+summary gives the totals.  A file without a golden file is a single load
+phase.  The phases do not add up to the run time: what remains is
+`golden.pl` releasing tables and comparing transcripts.  `--timeout`
+also raises `golden.pl`'s own limits, `ERGOAIP_TIME_LIMIT` for `%test`
+and `ERGOAIP_LOAD_TIME_LIMIT` for the load, which default to 60 s and
+20 s.  The reported times include compilation, which ergoAIp does not
+cache.
 
 ergo2p's conversion from classic syntax *is* cached
 (`ergoAIp/src/ergo2p/conv_cache.pl`), in `~/.cache/ergoaip/ergo2p` by
@@ -77,8 +93,10 @@ them.  On ergoAIp from `ergoAIstudio2` f5d6960 onward, every one of the
 | miss the same 2 golden lines | 99 |
 | median time | 15 s, about 110M inferences |
 | slowest program | 95 s |
-| `whatisduplicationstatus` | passes in 13.5 s, 3.3 GB |
+| `whatisduplicationstatus` | passes in 13.5 s, 3.3 GB (load 1.7 s, solve 8.3 s) |
 
+`modernize.sh` now also fixes the `:\` typo, so all 144 programs run;
+`cytokinesisisthedivisionofonecellintotwo-0` misses the usual 2 lines.
 This makes the whole suite usable as a tabling workload.  To reproduce:
 
 ```
@@ -121,7 +139,7 @@ not from bugs:
   a file that has any parse failure.
 
 The script's defaults (`--stack-limit=16g`, `--table-space=8g`) cover all
-of these except the typo.
+of these except the typo, which `modernize.sh` fixes in its copy.
 
 ## Correctness notes (not needed for completion)
 

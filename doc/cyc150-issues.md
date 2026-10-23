@@ -17,14 +17,14 @@ how to run the programs and their timings, see `ergoaip-performance.md`.
 | 3 | The KB depends on an XSB flag that no longer exists | translated in `scripts/modernize.sh`, does not help on its own |
 | 4 | With the core rules firing, evaluation does not terminate | **ergoAIp: fixed**; **XSB: open** |
 | 5 | ergoAIp silently drops part of the original core rules | moot on the modernized copy |
-| 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | not fixed |
+| 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | fixed in `scripts/modernize.sh` |
 | 7 | ergoAIp lacked some XSB/HiLog primitives the core uses | fixed in ergoAIp |
 
 **Current state on ergoAIp** (a copy made with today's `modernize.sh`;
 ergoAIp at `ergoAIstudio2` commit f5d6960):
 
-- all 143 parseable programs run to the end;
-- 44 pass and 99 miss the same 2 golden lines;
+- all 144 programs run to the end;
+- 44 pass and 100 miss the same 2 golden lines;
 - the median run is 15 s and the slowest 95 s;
 - `whatisduplicationstatus` passes in 13.5 s at 3.3 GB.
 
@@ -209,8 +209,10 @@ in issue 4.
 
 Line 1 of `kbq-cpttest-cytokinesisisthedivisionofonecellintotwo-0.flr`
 reads `:\ use_argumentation_theory{ogcle}`, a typo for `:-`.  Both
-engines reject the file: ergoAIp with `convert_incomplete`, XSB with a
-syntax error.
+engines reject the original file: ergoAIp with `convert_incomplete`, XSB
+with a syntax error.  `modernize.sh` corrects it.  On ergoAIp the program
+then runs to the end, missing the usual 2 golden lines (load 4.7 s, solve
+10.6 s).
 
 ## 7. ergoAIp lacked some primitives the core uses (fixed)
 
