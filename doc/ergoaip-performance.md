@@ -80,10 +80,10 @@ theories.
 `CYC_tests` and `PaulH_tests` contain only helper files, so they have
 nothing to run.
 
-### The modernized cyc150 corpus (with the full rule set)
+### The rewritten cyc150 corpus (with the full rule set)
 
 The table above uses the original corpus, on which ergoAIp drops 77 of
-the core rules.  A copy made with `scripts/modernize.sh` keeps all of
+the core rules.  The ErgoEngine branch `ergo301-performance` keeps all of
 them.  On ergoAIp from `ergoAIstudio2` f5d6960 onward, every one of the
 143 parseable programs runs to the end:
 
@@ -95,14 +95,13 @@ them.  On ergoAIp from `ergoAIstudio2` f5d6960 onward, every one of the
 | slowest program | 95 s |
 | `whatisduplicationstatus` | passes in 13.5 s, 3.3 GB (load 1.7 s, solve 8.3 s) |
 
-`modernize.sh` now also fixes the `:\` typo, so all 144 programs run;
+The branch also fixes the `:\` typo, so all 144 programs run;
 `cytokinesisisthedivisionofonecellintotwo-0` misses the usual 2 lines.
-This makes the whole suite usable as a tabling workload.  To reproduce:
+This makes the whole suite usable as a tabling workload.  The submodule
+is checked out at that branch, so the default run uses it:
 
 ```
-cp -r ErgoEngine/ErgoAI-performance /tmp/perf
-scripts/modernize.sh /tmp/perf
-swipl scripts/ergoaip_perf.pl /tmp/perf/cyc150
+swipl scripts/ergoaip_perf.pl
 ```
 
 `cyc150-issues.md` explains what the rewrite and the ergoAIp fixes
@@ -139,7 +138,7 @@ not from bugs:
   a file that has any parse failure.
 
 The script's defaults (`--stack-limit=16g`, `--table-space=8g`) cover all
-of these except the typo, which `modernize.sh` fixes in its copy.
+of these except the typo, which the `ergo301-performance` branch fixes.
 
 ## Correctness notes (not needed for completion)
 
@@ -192,19 +191,21 @@ ergoAIp exhausts its 8 GB table space in `cellwithcellplate-4`.  So
 neither engine reproduces the goldens on a 3.01-clean corpus.
 
 The two `cyc150` rows in the table were measured **before** two later
-fixes to `modernize.sh`.  The first fixes the reason XSB derived nothing,
+fixes to the rewrite.  The first fixes the reason XSB derived nothing,
 a broken `isGround` builtin; the second translates a renamed XSB flag.
 With both fixes the core rules fire, and `whatisduplicationstatus` no
 longer terminates on XSB within 30 minutes.  The rows are therefore
 stale; see `cyc150-issues.md`, issues 2–4.
 
-`scripts/modernize.sh` makes the rewritten copy.  It uses
-`scripts/silkconn.py` to convert the connectives.  Run it on a copy, never
-on the original tree:
+The rewritten corpus is the ErgoEngine branch `ergo301-performance`.
+On that branch ErgoAI-performance's own harness works again.  It runs
+`runergo` with the ErgoAI-testsuite command sequence, and
+`test_one_file.sh` prints load and solve time, CPU and wall, for each
+program:
 
 ```
-cp -r ErgoEngine/ErgoAI-performance /tmp/perf
-scripts/modernize.sh /tmp/perf
+cd ErgoEngine/ErgoAI-performance
+./testall.sh $PWD/../ErgoAI
 ```
 
 To build ErgoAI against XSB, run `./makeergo nodocs <path-to>/bin/xsb` in

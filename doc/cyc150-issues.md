@@ -12,15 +12,15 @@ how to run the programs and their timings, see `ergoaip-performance.md`.
 
 | # | Issue | Status |
 |---|---|---|
-| 1 | The corpus uses SILK syntax that ErgoAI 3.01 rejects | worked around by `scripts/modernize.sh` |
-| 2 | `isGround` is always false on ErgoAI 3.01, so the core rules never fire | fixed in `scripts/modernize.sh` |
-| 3 | The KB depends on an XSB flag that no longer exists | translated in `scripts/modernize.sh`, does not help on its own |
+| 1 | The corpus uses SILK syntax that ErgoAI 3.01 rejects | fixed on the ErgoEngine branch `ergo301-performance` |
+| 2 | `isGround` is always false on ErgoAI 3.01, so the core rules never fire | fixed on the branch |
+| 3 | The KB depends on an XSB flag that no longer exists | translated on the branch, does not help on its own |
 | 4 | With the core rules firing, evaluation does not terminate | **ergoAIp: fixed**; **XSB: open** |
-| 5 | ergoAIp silently drops part of the original core rules | moot on the modernized copy |
-| 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | fixed in `scripts/modernize.sh` |
+| 5 | ergoAIp silently drops part of the original core rules | moot on the branch |
+| 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | fixed on the branch |
 | 7 | ergoAIp lacked some XSB/HiLog primitives the core uses | fixed in ergoAIp |
 
-**Current state on ergoAIp** (a copy made with today's `modernize.sh`;
+**Current state on ergoAIp** (ErgoEngine branch `ergo301-performance`;
 ergoAIp at `ergoAIstudio2` commit f5d6960):
 
 - all 144 programs run to the end;
@@ -33,17 +33,14 @@ finish within 30 minutes (issue 4).
 
 ## 1. The corpus is written in SILK, not ErgoAI 3.01
 
-ErgoAI 3.01 does not compile the original files.
-`scripts/modernize.sh` rewrites a copy (never the original tree):
+ErgoAI 3.01 does not compile the original files.  The ErgoEngine branch
+`ergo301-performance` (commit c749610 on top of `main-github`) has the
+corpus rewritten in place.  The submodule in this repository is checked
+out at that branch.  The rewrite was done by a script that lived in
+`scripts/modernize.sh` before this repository's commit that removed it.
+The branch commit lists every change.  The main ones:
 
-```
-cp -r ErgoEngine/ErgoAI-performance /tmp/perf
-scripts/modernize.sh /tmp/perf
-```
-
-The script makes these rewrites:
-
-- **SILK connectives** (via `scripts/silkconn.py`): `and` → `,`,
+- **SILK connectives:** `and` → `,`,
   `or` → `;`, `not G`/`naf G` → `\naf G`, `neg G` → `\neg G`,
   `is` → `\is`.
 - **Directives and options:**
@@ -84,7 +81,7 @@ rules are guarded by it, so on XSB:
 
 ergoAIp treats a bare `ground/1` as a builtin
 (`ergoaip_compiler.pl`, `builtin(ground/1)`), so the bug does not show
-there.  `modernize.sh` rewrites the line to `ground(?X)@\prolog`.
+there.  The branch rewrites the line to `ground(?X)@\prolog`.
 
 ## 3. The KB relies on a renamed XSB flag
 
@@ -98,7 +95,7 @@ Old XSB used this flag to abstract tabled subgoals deeper than 100.  The
 KB needs that to terminate (see issue 4).  The flag no longer exists:
 
 - **Current XSB** calls it `max_table_subgoal_size` and needs a separate
-  action flag.  `modernize.sh` now translates the line to
+  action flag.  The branch translates the line to
 
   ```
   ?- set_prolog_flag(max_table_subgoal_size, 100)@\prolog,
@@ -130,13 +127,13 @@ forwardSentence(isa(?TERM, UnknownScalarInterval)) :-
 
 is installed as `forwardSentence(A) :- removalSentence(hypotheticalTerm(A)),
 …`.  Each application of that rule wraps one more `hypotheticalTerm`
-around its argument.  `modernize.sh` now renames `isa(` to `cycIsa(`
+around its argument.  The branch renames `isa(` to `cycIsa(`
 throughout the copy.  The rename is harmless on XSB, but it does not help
 there: XSB's runaway has a different, still unknown, cause.
 
 The original diagnosis follows.
 
-**On XSB** (modernized copy, `whatisduplicationstatus`):
+**On XSB** (rewritten corpus, `whatisduplicationstatus`):
 
 | Subgoal bound | Result |
 |---|---|
@@ -144,7 +141,7 @@ The original diagnosis follows.
 | 100, abstract | the same: timeout after 30 min |
 | 10, abstract | abstraction kicks in, but abstracted goals reach a `\naf` in the argumentation theory unbound: `Floundering goal in tnot/1` on `rebuts(…hlPred(impPred)…)`; timeout after 10 min |
 
-**On ergoAIp** (same modernized copy), the load finishes in about 2 s.
+**On ergoAIp** (same rewritten corpus), the load finishes in about 2 s.
 The sanity query fails quickly instead of looping.  `%test` ends in a
 `run_error` after 354 s.  A histogram of the tables after 90 s of `%test`:
 
@@ -210,7 +207,7 @@ in issue 4.
 Line 1 of `kbq-cpttest-cytokinesisisthedivisionofonecellintotwo-0.flr`
 reads `:\ use_argumentation_theory{ogcle}`, a typo for `:-`.  Both
 engines reject the original file: ergoAIp with `convert_incomplete`, XSB
-with a syntax error.  `modernize.sh` corrects it.  On ergoAIp the program
+with a syntax error.  The branch corrects it.  On ergoAIp the program
 then runs to the end, missing the usual 2 golden lines (load 4.7 s, solve
 10.6 s).
 
