@@ -1,0 +1,181 @@
+# Known issues with the cyc150 programs
+
+The `cyc150` programs in `ErgoEngine/ErgoAI-performance` are 144 queries
+against one shared knowledge base, `core_files/latest-tiny-kb.flr`, plus
+a set of core rules.  They were written for an old Flora-2/SILK system.
+Neither ErgoAI 3.01 on XSB nor ergoAIp runs them the way the golden files
+expect.  This note records what is known so far, mostly from working on
+`kbq-cpttest-whatisduplicationstatusofchromosomeofcellinsphase-0`.  For
+how to run the programs and their timings, see `ergoaip-performance.md`.
+
+## Summary
+
+| # | Issue | Status |
+|---|---|---|
+| 1 | The corpus uses SILK syntax that ErgoAI 3.01 rejects | worked around by `scripts/modernize.sh` |
+| 2 | `isGround` is always false on ErgoAI 3.01, so the core rules never fire | fixed in `scripts/modernize.sh` |
+| 3 | The KB depends on an XSB flag that no longer exists | translated in `scripts/modernize.sh`, does not help on its own |
+| 4 | With the core rules firing, evaluation does not terminate | **open** |
+| 5 | ergoAIp silently drops part of the original core rules | open, explains why ergoAIp "passes" |
+| 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | not fixed |
+
+## 1. The corpus is written in SILK, not ErgoAI 3.01
+
+ErgoAI 3.01 does not compile the original files.
+`scripts/modernize.sh` rewrites a copy (never the original tree):
+
+```
+cp -r ErgoEngine/ErgoAI-performance /tmp/perf
+scripts/modernize.sh /tmp/perf
+```
+
+The script makes these rewrites:
+
+- **SILK connectives** (via `scripts/silkconn.py`): `and` → `,`,
+  `or` → `;`, `not G`/`naf G` → `\naf G`, `neg G` → `\neg G`,
+  `is` → `\is`.
+- **Directives and options:**
+  - `:- iriprefix p = "..."` gets braces;
+  - `setsemantics{tabling(incremental)}` is commented out;
+  - `equality(none)` becomes `equality=none`;
+  - the invalid `optimize` options `class_expressions, main` are
+    commented out.
+- **Misspelled or removed names:**
+  - the `silk` prefix is added where it was undefined;
+  - `%mustDefine` becomes `mustDefine`;
+  - `%writeln(...)@\io` becomes `writeln(...)@\io`;
+  - `\baseType`/`\isTypeOf` become `\basetype`/`isTypeOf`.
+- **Literals:**
+  - `\"urn:..."` and `_"urn:..."` become `"urn:..."^^\iri`;
+  - variable tags `@{?, X}` become `@{X}`.
+
+## 2. `isGround` is always false on ErgoAI 3.01 (fixed)
+
+`aux_files/silk-predicates_at_builtin.flr` defines
+
+```
+%silkb#isGround(?X) :- ground(?X).
+```
+
+Every other line of that file escapes its Prolog call with `@\prolog`;
+this one does not.  In ErgoAI 3.01 a bare `ground/1` is an ordinary,
+undefined Ergo predicate, so `isGround` is always false.  About 60 core
+rules are guarded by it, so on XSB:
+
+- no microtheory becomes visible;
+- `isa('HYP-…', ?X)` is false;
+- `%pretest` fails;
+- every cyc150 test "finishes" in about 1 s and misses the same 2 golden
+  answers;
+- even the core's own sanity query in
+  `core_files/rmt-removal-lookup-pos-1.flr` answers `No`.
+
+ergoAIp treats a bare `ground/1` as a builtin
+(`ergoaip_compiler.pl`, `builtin(ground/1)`), so the bug does not show
+there.  `modernize.sh` rewrites the line to `ground(?X)@\prolog`.
+
+## 3. The KB relies on a renamed XSB flag
+
+`aux_files/silk-predicates.flr` runs
+
+```
+?- set_prolog_flag(max_table_subgoal_depth, 100)@\prolog.
+```
+
+Old XSB used this flag to abstract tabled subgoals deeper than 100.  The
+KB needs that to terminate (see issue 4).  The flag no longer exists:
+
+- **Current XSB** calls it `max_table_subgoal_size` and needs a separate
+  action flag.  `modernize.sh` now translates the line to
+
+  ```
+  ?- set_prolog_flag(max_table_subgoal_size, 100)@\prolog,
+     set_prolog_flag(max_table_subgoal_size_action, abstract)@\prolog.
+  ```
+
+- **SWI-Prolog** silently creates an unused flag
+  `max_table_subgoal_depth`, so ergoAIp never had the bound.  SWI does
+  support `max_table_subgoal_size` with action `abstract`; that has not
+  been tried yet.
+
+The translation does not make the program terminate (issue 4).
+
+## 4. Evaluation does not terminate (open)
+
+With issue 2 fixed, the core rules fire, and evaluation runs away.
+
+**On XSB** (modernized copy, `whatisduplicationstatus`):
+
+| Subgoal bound | Result |
+|---|---|
+| none | still inside the `rmt-removal-lookup-pos-1` sanity query after 30 min |
+| 100, abstract | the same: timeout after 30 min |
+| 10, abstract | abstraction kicks in, but abstracted goals reach a `\naf` in the argumentation theory unbound: `Floundering goal in tnot/1` on `rebuts(…hlPred(impPred)…)`; timeout after 10 min |
+
+**On ergoAIp** (same modernized copy), the load finishes in about 2 s.
+The sanity query fails quickly instead of looping.  `%test` ends in a
+`run_error` after 354 s.  A histogram of the tables after 90 s of `%test`:
+
+- 182,573 tables in total;
+- 66,489 each of the argumentation theory's `holds/2` and `rcand/3`;
+- about 2,100 variants each of `removalSentence`, `lookupSentence`,
+  `assertedSentence`, `forwardSentence`, `sbhlSentence`,
+  `imp#destructureFormula`, `imp#isAtomicSentence`, … over
+  `natFunction(…)` and `hypotheticalTerm(…)`;
+- 27,639 such `natFunction`/`hypotheticalTerm` variants in all.
+
+Their arguments are an ever-deeper nesting,
+`hypotheticalTerm(hypotheticalTerm(…))`; the largest was 21,279 cells
+after 90 s.  That unbounded term growth is the non-termination.  The
+argumentation theory then multiplies it, with one `holds/2` table per
+literal.
+
+**Still unknown:** which rule builds the nested terms.  The candidates are
+the rules that construct formulas from unbound parts, in
+`core_files/core-rules.flr`:
+
+- `operatorFormulas/2` and `imp#destructureFormula/3`
+  (`?TERM =.. [hilog(?R)|?ARGS]`);
+- `gpLookupSentence/1`;
+- `transformationSentence/1`;
+- `removalSentence(natFunction(?NART, ?F))`.
+
+Finding the producer would tell whether this is an artefact of the
+modernized corpus or behaviour the original SILK system cut off with its
+depth bound.
+
+**Probing tips:**
+
+- `setruntime{timeout(repeating(N, showgoals{}))}` crashes XSB 52953d05c.
+  It first tries to start Java, then hits a memory violation in
+  `get_sdg_subgoal_info/1`.
+- A Prolog handler, `timeout(repeating(N, probe(?)@\prolog))`, works but
+  only sees the top-level goal.
+- On ergoAIp, take the table histogram from inside the running
+  evaluation, with `alarm/4` and `current_table(M:Goal, _)` per module.
+  A `call_with_time_limit/2` timeout discards the incomplete tables first,
+  so it shows nothing.
+
+## 5. ergoAIp drops part of the original core rules
+
+On the **original** corpus, ergoAIp passes `whatisduplicationstatus` in
+44 s.  That is not evidence that it runs the KB correctly.  In nested
+`[+file]` loads, ergoAIp silently drops statements it cannot parse; 77 of
+the 332 statements in `core_files/core-rules.flr` are lost this way, mostly
+those that use the SILK connectives.  Without them the rules that run away
+in issue 4 cannot fire.  Other ergoAIp mismatches on the original corpus:
+
+- `isa(...)` used as an ordinary term collides with ergoAIp's encoding of
+  `:`;
+- most tests miss the same 2 golden answers.
+
+On the modernized corpus, ergoAIp exhausts its 8 GB table space in
+`cellwithcellplate-4`, and `whatisduplicationstatus` fails as described
+in issue 4.
+
+## 6. Syntax error in one test
+
+Line 1 of `kbq-cpttest-cytokinesisisthedivisionofonecellintotwo-0.flr`
+reads `:\ use_argumentation_theory{ogcle}`, a typo for `:-`.  Both
+engines reject the file: ergoAIp with `convert_incomplete`, XSB with a
+syntax error.

@@ -107,6 +107,11 @@ parse; 77 of the 332 statements in `core-rules.flr` are lost this way.
 `isa(...)` used as an ordinary term also collides with ergoAIp's encoding
 of `:`.
 
+**The ergoAIp `whatisduplicationstatus` pass above depends on those
+dropped rules.**  With the full rule set, evaluation does not terminate on
+either engine.  `cyc150-issues.md` has the details and the other known
+problems with this corpus.
+
 An experimental patch got further: it added an `arg0/3` shim, fixed
 `=..` with `hilog(F)` heads, and made late open-head bridges.  It has been
 set aside, because it makes more rules fire, and on rewritten copies of the
@@ -136,11 +141,18 @@ into `.xwam` then makes no visible progress for the rest of the hour.
 the original corpus.  For XSB it was run on a copy with the old SILK
 dialect rewritten to 3.01 syntax, for example `and`/`or`/`not`/`neg`/`is`,
 `iriprefix` without braces, `%mustDefine`, and the `\"urn:..."` IRIs.  On
-that copy XSB derives nothing: `%pretest` fails, and every test misses the
+that copy XSB derived nothing: `%pretest` failed, and every test missed the
 same 2 answers in about 1 s.  This includes `whatisduplicationstatus`,
 which does real work on ergoAIp and passes there.  On the rewritten copy,
 ergoAIp exhausts its 8 GB table space in `cellwithcellplate-4`.  So
 neither engine reproduces the goldens on a 3.01-clean corpus.
+
+The two `cyc150` rows in the table were measured **before** two later
+fixes to `modernize.sh`.  The first fixes the reason XSB derived nothing,
+a broken `isGround` builtin; the second translates a renamed XSB flag.
+With both fixes the core rules fire, and `whatisduplicationstatus` no
+longer terminates on XSB within 30 minutes.  The rows are therefore
+stale; see `cyc150-issues.md`, issues 2–4.
 
 `scripts/modernize.sh` makes the rewritten copy.  It uses
 `scripts/silkconn.py` to convert the connectives.  Run it on a copy, never
