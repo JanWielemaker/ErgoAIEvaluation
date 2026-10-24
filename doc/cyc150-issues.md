@@ -15,7 +15,7 @@ how to run the programs and their timings, see `ergoaip-performance.md`.
 | 1 | The corpus uses SILK syntax that ErgoAI 3.01 rejects | fixed on the ErgoEngine branch `ergo301-performance` |
 | 2 | `isGround` is always false on ErgoAI 3.01, so the core rules never fire | fixed on the branch |
 | 3 | The KB depends on an XSB flag that no longer exists | translated on the branch, does not help on its own |
-| 4 | With the core rules firing, evaluation does not terminate | **ergoAIp: fixed**; **XSB: open** |
+| 4 | With the core rules firing, evaluation does not terminate | **ergoAIp: fixed**; **XSB: cause found, not fixed** |
 | 5 | ergoAIp silently drops part of the original core rules | moot on the branch |
 | 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | fixed on the branch |
 | 7 | ergoAIp lacked some XSB/HiLog primitives the core uses | fixed in ergoAIp |
@@ -184,6 +184,78 @@ depth bound.
   evaluation, with `alarm/4` and `current_table(M:Goal, _)` per module.
   A `call_with_time_limit/2` timeout discards the incomplete tables first,
   so it shows nothing.
+
+### The cause on XSB: the argumentation theory over meta-level sentences
+
+XSB's runaway is not term growth.  With `max_table_subgoal_size` at 30
+and the action `error`, nothing trips in 10 minutes.  Instead it is
+breadth that never completes.  These measurements leave
+`rmt-removal-lookup-pos-1` out of the core loads and keep its
+`queryMt(EverythingPSC)` fact, so the core loads and `%pretest` runs.
+XSB's `statistics/0`, printed every 40 s from a timer, shows:
+
+| Time | Distinct subgoals | Incomplete tables | Answers inserted | Memory |
+|---|---|---|---|---|
+| 40 s | 50,591 | 46,962 (in 6 SCCs) | 2,892 | 0.42 GB |
+| 80 s | 62,944 | 59,315 | 2,892 | 0.46 GB |
+| 120 s | 70,957 | 67,328 | 2,892 | 0.69 GB |
+
+New subgoals keep appearing, a few hundred per second, but no new
+answers.  Almost every table stays incomplete, in a handful of huge
+recursive components that never complete.
+
+A dump of the first 2,000 incomplete subgoals (method below) shows what
+they are:
+
+- About 40% are tables of the argumentation theory `ogcle`:
+  `candidate`, `rebuts`, `beater` and `tabled_naf_call`.  Every core rule
+  is tagged (`@{"urn:uuid:…"}`), hence defeasible, so every derived
+  literal is checked through the theory.
+- The literals are mostly **meta-level sentences about the KB's own
+  predicates**: `hlPred(P)`, `impPred(P)`, `backchainForbidden(P)`,
+  `transformationPredicate(P)`, `removalPredicate(P)` and their `not(…)`
+  forms.  `P` ranges over the core's implementation predicates
+  (`imp#destructureFormula`, `imp#isAtomic`, `imp#decidableAsent`, …).
+- `imp#destructureFormula` (the `?TERM =.. [hilog(?R)|?ARGS]` helper)
+  alone accounts for 681 entries.
+
+The source is the open-functor rules of `core-rules.flr`, such as
+`?P(?A1, ?A2, ?A3) :- imp#transformationPredicate(?P),
+transformationSentence(?P(…))`.  In ErgoAI every literal is a HiLog
+application, so these heads also match calls to the core's helper
+predicates: every `destructureFormula` call becomes a possible conclusion
+of the generic rules.  That conclusion is checked through the
+argumentation theory, which calls `destructureFormula` again.  The KB
+means to keep implementation predicates out, with its `impPred(…)` facts
+and `\naf hlPred(?P)` guards, but those guards go through the
+argumentation theory too.
+
+ergoAIp evaluates the same rules in about 9 s, so its argumentation layer
+does much less work here.  Whether it gives up something XSB has to do is
+open.  Until that is known, XSB and ergoAIp timings on cyc150 do not
+measure the same computation.
+
+**Inspecting XSB's tables during this evaluation crashes XSB** (memory
+violation, XSB 52953d05c) once there are more than about 30,000 incomplete
+subgoals.  All three routes crash: `showgoals{}`, `get_calls/3` from a
+timer handler, and `get_sdg_info/1` from a tripwire handler.  At 2,000
+subgoals the tripwire route works, and that produced the dump above:
+
+```
+?- set_prolog_flag(max_incomplete_subgoals, 2000)@\prolog,
+   set_prolog_flag(max_incomplete_subgoals_action, custom)@\prolog.
+```
+
+with, in a consulted `.P` file:
+
+```
+:- assert((max_incomplete_subgoals_user_handler :- my_dump)).
+my_dump :- get_sdg_info(L), ( member(E, L), writeq(E), nl, fail ; true ), abort.
+```
+
+`max_incomplete_subgoals_user_handler/0` is already dynamic in `usermod`,
+so it must be `assert`ed; a file that defines it as a static predicate is
+refused.
 
 ## 5. ergoAIp drops part of the original core rules
 
