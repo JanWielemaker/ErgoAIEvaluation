@@ -151,7 +151,12 @@ swipl --stack-limit=16g scripts/ergoaip_cases.pl [--threads=N] [--max=N] [--out=
 (2026-10-23, ergoAIp from `ergoAIstudio2` be76d28 onward).  With those
 fixes (ErgoEngine b9a8792, ergoAIstudio2 54009e7) and 2 threads, **102
 cases pass**, 40 give no answer and 2 exhaust an 8 GB table space; the
-median solve is 9.8 s and the slowest 37 s, in 1,727 s wall at 23 GB:
+median solve is 9.8 s and the slowest 37 s, in 1,727 s wall at 23 GB.  With the head fix of issue 12 (ergoAIstudio2 b07b4ae) and 5 threads,
+**129 pass**, 13 give no answer and 2 exhaust the table space (both pass
+with `--table-space=40g`).  Solving is much heavier because the
+transitive-via-argument inferences now run: the sum of solves is 8,737 s,
+3,065 s wall, 81 GB peak, and a case on its own solves in about 33 s.  The
+earlier numbers:
 
 | | 1 thread | 8 threads |
 |---|---|---|

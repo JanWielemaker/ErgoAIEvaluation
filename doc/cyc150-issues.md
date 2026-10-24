@@ -22,18 +22,22 @@ how to run the programs and their timings, see `ergoaip-performance.md`.
 | 8 | `\naf isGround(?X)` guards are delayed until ?X is bound | fixed on the branch (`\+`), plus an ergoAIp fix |
 | 9 | Every symbol counts as a `CharacterString` | fixed on the branch |
 | 10 | Nested open HiLog applications never meet stored sentences | fixed in ergoAIp |
-| 11 | Two cases exhaust an 8 GB table space | open |
+| 11 | Two cases exhaust an 8 GB table space | they pass with 40 GB |
+| 12 | Open HiLog applications in rule-head arguments never match | fixed in ergoAIp |
+| 13 | 12 cases need knowledge the KB does not contain | open, KB content |
 
 **Current state on ergoAIp** (ErgoEngine branch `ergo301-performance`
-b9a8792; ergoAIp at `ergoAIstudio2` 54009e7; `scripts/ergoaip_cases.pl`,
+b9a8792; ergoAIp at `ergoAIstudio2` b07b4ae; `scripts/ergoaip_cases.pl`,
 the core loaded once and each case solved in a snapshot):
 
 - all 144 cases run;
-- **102 pass**, 40 give no answer, and 2 run out of table space;
-- the median solve is 9.8 s and the slowest 37 s;
-- `whatisduplicationstatus` passes.
+- **131 pass**: 129 with the default 8 GB table space, and the two
+  `subeventsofsphase` cases with 40 GB (issue 11);
+- the other 12 give no answer, all for lack of KB content (issue 13);
+- run on its own, a typical case solves in about 33 s; the two big ones
+  take 180 s at 68 GB.
 
-Before issues 8–10 were fixed, 44 cases passed.
+44 cases passed before issues 8–10 were fixed, and 102 before issue 12.
 
 **Current state on XSB:** `whatisduplicationstatus` still does not
 finish within 30 minutes (issue 4).
@@ -379,9 +383,57 @@ against the compiled module with ergoAIp's `tests/dbg.pl`:
 The `imp` prefix is not declared in ad-hoc queries, so append probe rules
 to a copy of the case file instead.
 
-## 11. Two cases exhaust the table space (open)
+## 11. Two cases exhaust the table space (resolved by a larger limit)
 
 `subeventsofsphase-1` and `opensubquerykbctestfn-cpttest-subeventsofsphase-0`
-now get far enough to need more than an 8 GB table space, after about 45 s
-of solving.  The limit can be raised with `--table-space`; this has not
-been tried.
+need more than an 8 GB table space.  With
+`scripts/ergoaip_perf.pl --table-space=40g` both pass, each in about
+300 s wall (180 s solve, 1.6 G inferences) at a 68 GB peak.
+
+## 12. Open HiLog applications in rule heads (fixed in ergoAIp)
+
+The head-side twin of issue 10.  The core's transitive-via-argument rules
+are written
+
+```
+tvaSentence(?P(?NEW1, ?ARG2, ?ARG3)) :- imp#tvaPredicate(?P), …
+```
+
+ergoAIp stored that head argument as `flapply(?P, …)`.  A call naming the
+concrete `phasesAlternateInCycleType(…)` could never unify with it, so no
+`transitiveViaArg`/`transitiveViaArgInverse` inference ever happened.  Now
+the head argument becomes a variable, and the application is bound to it in
+front of the body.  This applies to strict and defeasible rules, and not
+inside reifications.  It took the case driver from 102 to 129 passing
+cases, but the total solve time roughly tripled, because those inferences
+now run.
+
+## 13. Twelve cases need knowledge the KB lacks (open)
+
+All twelve ask a `\neg` query.  Each case file records Cyc's proof as
+`proof(N, K)` facts.  Steps 0–999 are the lemmas of the derivation and
+steps from 2000 on are support sentences.  A probe that asks each step,
+`pstep(?K) :- proof(?_N, ?K)`, shows exactly which support is underivable:
+
+- **Nine cases** (`mpfdeactivatingenzyme…` ×6, `meiosisandfertilization…-0`,
+  `-5` and the opensubquery `-0`, `whatphasesalternate…-2`) need
+  `negationPreds('partwiseDisjoint-TypeType', properSubEventTypes)` or
+  `negationInverse(…)`.  The core derives such a sentence (core-rules lines
+  117–121) from a `genlPreds` link, here presumably
+  `genlPreds(properSubEventTypes, 'shareParts-TypeType')`.  That link is in
+  neither the case's background facts nor `latest-tiny-kb.flr`.  Two of
+  them also need `superEventTypes(AsexualLifeCycle, AsexualLifeCycle)`.
+- **Three cases** (`whichligandtypehasareceptorinthecytoplasm-1/2/3`) need
+  `not(genls(?MOL, HydrophobicChemicalObject))`.  The core has no rule at
+  all that derives a negative `genls` (from `disjointWith`, as Cyc's SBHL
+  does).  It also never proves `HydrophobicChemicalObject` a `Collection`,
+  which the reflexive `genls` rule needs.
+
+A related detail: in a rule body, `not(S)` is an ordinary predicate
+`not/1` in ErgoAI (checked on XSB), and the KB declares `not` an `hlPred`,
+so such a body literal never holds.  Rewriting the cases' body literals
+`not(S)` to `\neg (S)` was measured: it closes none of the twelve.  Those
+rules only fire in the direction the proofs do not use.
+
+Closing these means adding knowledge that is not in the KB, which is a
+decision about the benchmark's content, not a fix.
