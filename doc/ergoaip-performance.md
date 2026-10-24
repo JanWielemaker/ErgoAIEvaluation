@@ -147,7 +147,11 @@ swipl --stack-limit=16g scripts/ergoaip_cases.pl [--threads=N] [--max=N] [--out=
 - The per-case report gives the time to **add** the case (convert,
   compile, install) and to **solve** it, with the solve's inferences.
 
-**Results** (2026-10-23, ergoAIp from `ergoAIstudio2` be76d28 onward):
+**Results** before the fixes of `cyc150-issues.md` issues 8–10
+(2026-10-23, ergoAIp from `ergoAIstudio2` be76d28 onward).  With those
+fixes (ErgoEngine b9a8792, ergoAIstudio2 54009e7) and 2 threads, **102
+cases pass**, 40 give no answer and 2 exhaust an 8 GB table space; the
+median solve is 9.8 s and the slowest 37 s, in 1,727 s wall at 23 GB:
 
 | | 1 thread | 8 threads |
 |---|---|---|

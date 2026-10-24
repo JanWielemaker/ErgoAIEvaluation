@@ -19,14 +19,21 @@ how to run the programs and their timings, see `ergoaip-performance.md`.
 | 5 | ergoAIp silently drops part of the original core rules | moot on the branch |
 | 6 | `cytokinesisisthedivisionofonecellintotwo-0` has a syntax error | fixed on the branch |
 | 7 | ergoAIp lacked some XSB/HiLog primitives the core uses | fixed in ergoAIp |
+| 8 | `\naf isGround(?X)` guards are delayed until ?X is bound | fixed on the branch (`\+`), plus an ergoAIp fix |
+| 9 | Every symbol counts as a `CharacterString` | fixed on the branch |
+| 10 | Nested open HiLog applications never meet stored sentences | fixed in ergoAIp |
+| 11 | Two cases exhaust an 8 GB table space | open |
 
-**Current state on ergoAIp** (ErgoEngine branch `ergo301-performance`;
-ergoAIp at `ergoAIstudio2` commit f5d6960):
+**Current state on ergoAIp** (ErgoEngine branch `ergo301-performance`
+b9a8792; ergoAIp at `ergoAIstudio2` 54009e7; `scripts/ergoaip_cases.pl`,
+the core loaded once and each case solved in a snapshot):
 
-- all 144 programs run to the end;
-- 44 pass and 100 miss the same 2 golden lines;
-- the median run is 15 s and the slowest 95 s;
-- `whatisduplicationstatus` passes in 13.5 s at 3.3 GB.
+- all 144 cases run;
+- **102 pass**, 40 give no answer, and 2 run out of table space;
+- the median solve is 9.8 s and the slowest 37 s;
+- `whatisduplicationstatus` passes.
+
+Before issues 8–10 were fixed, 44 cases passed.
 
 **Current state on XSB:** `whatisduplicationstatus` still does not
 finish within 30 minutes (issue 4).
@@ -303,3 +310,78 @@ fixes in ergoAIp (`ergoAIstudio2` commit f5d6960):
 
 ergoAIp's unit suites and its golden smoke set are unchanged by these
 fixes.
+
+## 8. `\naf isGround(?X)` is delayed (fixed)
+
+The SILK original writes `not %silkb#isGround(?X)` to mean "?X is still
+unbound *here*", a test of the current binding state.  It uses this to
+choose between rule variants by which arguments are bound, as in
+`core-rules.flr` line 273:
+
+```
+removalSentence(genls(?SPEC, ?GENL)) :- %silkb#isGround(?SPEC)@builtin,
+    \naf %silkb#isGround(?GENL)@builtin, sbhlSentence(genls(?SPEC, ?GENL)).
+```
+
+The SILK-to-3.01 rewrite turned that into `\naf`.  Ergo delays a `\naf`
+until its variables are bound; at that point `isGround` is true and the
+guard fails.  The 36 guards of this form disabled every rule variant meant
+for an unbound argument.  ErgoAI's immediate negation is `\+`, so the
+branch now writes `\+ %silkb#isGround(?X)@builtin`.
+
+That also needed an ergoAIp fix: ergoAIp compiled `\+` exactly like
+`\naf`, delayed.  ErgoAI compiles it as Prolog's negation (`PRPLGNAF`).
+On the oracle, `p(1). r(?X) :- \+ p(?X), ?X = 2.` answers No while the
+`\naf` version answers `?X = 2`; ergoAIp now does the same.
+
+## 9. Every symbol counts as a `CharacterString` (fixed)
+
+`aux_files/silk-predicates_at_builtin.flr` defined
+`%silkb#isString(?X) :- atom(?X)@\plg.`  In ErgoAI every symbol is an
+atom, so the core derived `cycIsa(Bacterium, CharacterString)`.  It also
+derived `List` and `Individual`, but not `Collection`.  `genls` requires
+`Collection` arguments (`argIsa`), so the core's well-formedness check
+(`imp#wffRejectedSentence`) rejected `genls(Bacterium, ProkaryoticCell)`.
+The derived `not(genls(…))` sentence then defeated every positive `genls`
+conclusion.  The file already carried the right test, commented out:
+`\string[isTypeOf(?X)]@\basetype`.  The branch uses that one.
+
+The branch also makes `imp#numberCodes` and `imp#atomCodes` fail instead
+of throwing.  The generic open-functor rules call them with arbitrary
+arguments (`number_codes(?N, implies)`), which raised a type error and
+aborted the case.
+
+## 10. Nested open HiLog applications (fixed in ergoAIp)
+
+`core-rules.flr` writes rules such as
+
+```
+\neg ?P(?ARG1, ?ARG2) :- imp#removalPredicate(?P),
+    removalSentence(not(?P(?ARG1, ?ARG2))).
+```
+
+In ErgoAI `?P(?A, ?B)` with `?P = genls` *is* the term `genls(?A, ?B)`.
+ergoAIp compiles an application with a variable functor to
+`flapply(?P, ?A, ?B)`.  It already rebuilt one that is a direct argument
+of a literal, once `?P` is bound, but not one nested inside another term.
+`not(flapply(genls, …))` then matched no stored sentence, the KB's
+closed-world rules for `not(…)` held, and the negative conclusion defeated
+the positive one.  ergoAIp now rebuilds nested applications too, in the
+arguments of ordinary KB literals only.
+
+**How these were found.**  Load a failing case and run raw Prolog goals
+against the compiled module with ergoAIp's `tests/dbg.pl`:
+
+- `ergo_gclp:rcand(kb, R, L)` finds the candidate rules for a literal;
+- `ergo_gclp:rdefeats(kb, R2, L2, R, L)` finds what defeats them;
+- running each candidate's `'$cand'/2` body names the failing step.
+
+The `imp` prefix is not declared in ad-hoc queries, so append probe rules
+to a copy of the case file instead.
+
+## 11. Two cases exhaust the table space (open)
+
+`subeventsofsphase-1` and `opensubquerykbctestfn-cpttest-subeventsofsphase-0`
+now get far enough to need more than an 8 GB table space, after about 45 s
+of solving.  The limit can be raised with `--table-space`; this has not
+been tried.
