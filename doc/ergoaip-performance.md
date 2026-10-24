@@ -119,6 +119,65 @@ The `compiletests` KBs are good for profiling the ergo2p converter and the
 compiler.  `bio_carl` defines `%test5`, which nothing calls.  Calling it
 after loading would make `bio_carl` a large tabling workload as well.
 
+## Solving all cyc150 cases against one loaded KB
+
+`scripts/ergoaip_perf.pl` loads the core KB again for every program.
+Users care about query time, so `scripts/ergoaip_cases.pl` instead loads
+the core once and solves each case against it:
+
+```
+swipl --stack-limit=16g scripts/ergoaip_cases.pl [--threads=N] [--max=N] [--out=File] [dir]
+```
+
+**How it works:**
+
+- Every cyc150 program is the same 18-line header followed by its own
+  case: hypothesis facts, a few rules, `%pretest` and `%test`.  The
+  argumentation theory, the `\overrides` rules and the `[+…]` loads of
+  the core KB are all in the header.
+- The driver loads the header once into module `kb`.
+- It then runs each case as
+  `snapshot((add the case to kb, run %pretest))`, so the case's facts and
+  rules are discarded afterwards and no other case sees them.
+- Tables are thread-private, so every case starts from empty tables, and
+  with `--threads=N` cases run concurrently: the driver sets `cpu_count`
+  for `concurrent_maplist/3`.
+- A case passes when `%pretest` prints the `SUCCESS` line its golden file
+  expects.
+- The per-case report gives the time to **add** the case (convert,
+  compile, install) and to **solve** it, with the solve's inferences.
+
+**Results** (2026-10-23, ergoAIp from `ergoAIstudio2` be76d28 onward):
+
+| | 1 thread | 8 threads |
+|---|---|---|
+| verdicts | 44 pass, 100 no answer | the same, case for case |
+| core KB load (once) | 1.7 s | 1.7 s |
+| add a case | about 0.03 s | |
+| median solve | 9.4 s | 29 s |
+| slowest solve | 61 s | 152 s |
+| sum of solves | 2,196 s | 6,318 s |
+| wall time | 3,360 s | 1,102 s |
+| peak memory | 13.4 GB | 52.8 GB |
+
+The verdicts match running each program in its own process.
+
+**Memory, not cores, limits `--threads`.**  Each case builds up to several
+GB of tables.  The 8-thread run exhausted a 62 GB workstation, which is
+why its solves are three times slower, so its times are not usable.  Use
+about 2–3 threads per 60 GB, or lower `--table-space` per thread.
+
+**Overhead per case.**  In the single-threaded run about 8 s per case
+falls outside the add and solve phases.  It is spent in
+`abolish_all_tables` and the snapshot rollback after each case, and has
+not been looked into yet.
+
+**One ergoAIp fix was needed.**  A load inside a snapshot that is rolled
+back leaves its predicate *declarations*, but not their clauses.
+`ensure_called_pred/2` took such an empty declaration for a defined
+predicate, so on the next case `cycIsa/2` had no clauses and every call to
+it failed.  This is fixed in `ergoAIstudio2` be76d28.
+
 ## Why programs aborted early
 
 With SWI-Prolog's default limits, every early abort came from resources,
