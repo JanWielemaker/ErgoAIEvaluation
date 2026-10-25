@@ -19,14 +19,11 @@ A path is a `.flr`/`.ergo` file or a directory.  The default path is
 `ErgoAI-performance/cyc150`.  Helper KBs, which other tests load, are
 skipped.
 
-| Option | Meaning |
-|---|---|
-| `--timeout=Secs` | wall-clock limit per program (default 600) |
-| `--stack-limit=Sz` | Prolog stack limit per program (default `16g`) |
-| `--table-space=Sz` | table space per program (default `8g`) |
-| `--out=File` | also write the results as TSV, with the phase times as columns |
-| `--in-process` | run every program in the script's own process |
-| `--verbose` | show the engine's stderr |
+The options (`--help` lists them) are `--timeout`, `--stack_limit`,
+`--table_space`, `--out` (TSV, a row per program as it finishes),
+`--resume`, `--in_process`, `-i` (Prolog toplevel afterwards) and `-v`.
+[`tooling.md`](tooling.md) describes them, the verdicts and the TSV
+columns, and `scripts/ergoaip_perf_all.sh`, which runs the whole suite.
 
 A program that has a golden file (`<name>_old`) is run the way ErgoAI's
 `test_one_file.sh` runs it: load the file, run `%test`, and compare the
@@ -63,6 +60,28 @@ run from 4.6 s to 1.7 s once the core has been converted once.  Set
 The script sets `ERGOAIP_LIB_PATH` to `ErgoEngine/ErgoAI/{pkgs,ergo_lib}`
 so that the packages ErgoAI ships can be found, such as the argumentation
 theories.
+
+## Full run (2026-10-25)
+
+[`ergoaip-perf-report.md`](ergoaip-perf-report.md) is the complete
+report: all 158 programs, one process each, with result, times and peak
+memory.  It measures ErgoEngine e550962 and ergoAIstudio2 b07b4ae, with a
+40 GB table space and an 1800 s timeout.  Every program runs to the end,
+and none times out:
+
+| | Programs |
+|---|---|
+| pass | 140 of the 144 cyc150 cases |
+| loaded (no golden output) | 14: compiletests, CYC_tests, PaulH_tests, UDF_tests, wine_ontology |
+| miss 2 answers | 2 (`mpfdeactivatingenzyme`, equality substitution) |
+| out of memory | 2 (`subeventsofsphase`, 40 GB table space exhausted at 84 GB) |
+
+A typical cyc150 case takes 57 s: 1.7 s load and 34 s solve, at a 14 GB
+peak.  The 144 cases take 9,096 s together.  With the conversion cache
+warm, the compiletests KBs load in 28–276 s with at most 1.6 GB.  The
+2026-10-23 table below, with up to 18.5 GB, predates both that cache
+and the later ergoAIp changes; which of the two lowered the peaks has
+not been measured.
 
 ## Results (2026-10-23, SWI-Prolog 10.1.19, ergoAIp unmodified)
 

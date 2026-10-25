@@ -22,22 +22,27 @@ how to run the programs and their timings, see `ergoaip-performance.md`.
 | 8 | `\naf isGround(?X)` guards are delayed until ?X is bound | fixed on the branch (`\+`), plus an ergoAIp fix |
 | 9 | Every symbol counts as a `CharacterString` | fixed on the branch |
 | 10 | Nested open HiLog applications never meet stored sentences | fixed in ergoAIp |
-| 11 | Two cases exhaust an 8 GB table space | they pass with 40 GB |
+| 11 | Two cases exhaust an 8 GB table space | pass with 40 GB in the case driver; `%test` needs more |
 | 12 | Open HiLog applications in rule-head arguments never match | fixed in ergoAIp |
-| 13 | 12 cases need knowledge the KB does not contain | open, KB content |
+| 13 | 12 cases need knowledge the KB does not contain | 10 fixed on the branch; 2 left (equality substitution) |
 
 **Current state on ergoAIp** (ErgoEngine branch `ergo301-performance`
-b9a8792; ergoAIp at `ergoAIstudio2` b07b4ae; `scripts/ergoaip_cases.pl`,
-the core loaded once and each case solved in a snapshot):
+e550962; ergoAIp at `ergoAIstudio2` b07b4ae):
 
 - all 144 cases run;
-- **131 pass**: 129 with the default 8 GB table space, and the two
-  `subeventsofsphase` cases with 40 GB (issue 11);
-- the other 12 give no answer, all for lack of KB content (issue 13);
-- run on its own, a typical case solves in about 33 s; the two big ones
-  take 180 s at 68 GB.
+- **140 pass** with `scripts/ergoaip_cases.pl` (the core loaded once,
+  each case solved in a snapshot, 40 GB table space), including the two
+  `subeventsofsphase` cases (issue 11);
+- the full per-process run, `ergoaip-perf-report.md`, also has **140
+  pass**.  There the two `subeventsofsphase` cases exhaust the 40 GB
+  table space instead, and `amitotictissuehasnocellsinthecellcycle-0`
+  passes;
+- the two `mpfdeactivatingenzyme` cases miss 2 answers: they need
+  equality substitution (issue 13);
+- run on its own, a typical case solves in about 34 s at a 14 GB peak.
 
-44 cases passed before issues 8–10 were fixed, and 102 before issue 12.
+44 cases passed before issues 8–10 were fixed, 102 before issue 12, and
+131 before the knowledge additions of issue 13.
 
 **Current state on XSB:** `whatisduplicationstatus` still does not
 finish within 30 minutes (issue 4).
@@ -386,9 +391,18 @@ to a copy of the case file instead.
 ## 11. Two cases exhaust the table space (resolved by a larger limit)
 
 `subeventsofsphase-1` and `opensubquerykbctestfn-cpttest-subeventsofsphase-0`
-need more than an 8 GB table space.  With
-`scripts/ergoaip_perf.pl --table-space=40g` both pass, each in about
-300 s wall (180 s solve, 1.6 G inferences) at a 68 GB peak.
+need more than an 8 GB table space.  Before the knowledge additions of
+issue 13 (ErgoEngine b9a8792), both passed with
+`scripts/ergoaip_perf.pl --table-space=40g`, each in about 300 s wall
+(180 s solve, 1.6 G inferences) at a 68 GB peak.
+
+With the additions (e550962) they do more work.  The case driver,
+which solves `%pretest` once, still passes both with a 40 GB table
+space.  In the per-process run, however, both exhaust the 40 GB at an
+84 GB peak, after about 220 s solve and 2.0 G inferences.  That run uses
+`%test`, which runs `%pretest` twice, with `mustDefine` on and then off.
+Whether a larger table space suffices has not been tried: the machine
+has 109 GB.
 
 ## 12. Open HiLog applications in rule heads (fixed in ergoAIp)
 
@@ -408,32 +422,50 @@ inside reifications.  It took the case driver from 102 to 129 passing
 cases, but the total solve time roughly tripled, because those inferences
 now run.
 
-## 13. Twelve cases need knowledge the KB lacks (open)
+## 13. Twelve cases need knowledge the KB lacks (10 fixed on the branch)
 
 All twelve ask a `\neg` query.  Each case file records Cyc's proof as
 `proof(N, K)` facts.  Steps 0–999 are the lemmas of the derivation and
 steps from 2000 on are support sentences.  A probe that asks each step,
-`pstep(?K) :- proof(?_N, ?K)`, shows exactly which support is underivable:
+`pstep(?K) :- proof(?_N, ?K)`, appended to a copy of the case, shows which
+step cannot be derived.  (A step written `not(S)` can never be asked this
+way; see the third point below.)
 
-- **Nine cases** (`mpfdeactivatingenzyme…` ×6, `meiosisandfertilization…-0`,
-  `-5` and the opensubquery `-0`, `whatphasesalternate…-2`) need
-  `negationPreds('partwiseDisjoint-TypeType', properSubEventTypes)` or
-  `negationInverse(…)`.  The core derives such a sentence (core-rules lines
-  117–121) from a `genlPreds` link, here presumably
-  `genlPreds(properSubEventTypes, 'shareParts-TypeType')`.  That link is in
-  neither the case's background facts nor `latest-tiny-kb.flr`.  Two of
-  them also need `superEventTypes(AsexualLifeCycle, AsexualLifeCycle)`.
-- **Three cases** (`whichligandtypehasareceptorinthecytoplasm-1/2/3`) need
-  `not(genls(?MOL, HydrophobicChemicalObject))`.  The core has no rule at
-  all that derives a negative `genls` (from `disjointWith`, as Cyc's SBHL
-  does).  It also never proves `HydrophobicChemicalObject` a `Collection`,
-  which the reflexive `genls` rule needs.
+What was missing, and what the branch (ErgoEngine `ergo301-performance`,
+the commit after b9a8792) adds:
 
-A related detail: in a rule body, `not(S)` is an ordinary predicate
-`not/1` in ErgoAI (checked on XSB), and the KB declares `not` an `hlPred`,
-so such a body literal never holds.  Rewriting the cases' body literals
-`not(S)` to `\neg (S)` was measured: it closes none of the twelve.  Those
-rules only fire in the direction the proofs do not use.
+- **`negationPreds`/`negationInverse('partwiseDisjoint-TypeType',
+  properSubEventTypes)`**, a support in nine of the proofs.  The cases
+  state `negationPreds('partwiseDisjoint-TypeType', 'shareParts-TypeType')`
+  as background, and the core derives a `negationPreds` sentence from a
+  `genlPreds` link (core-rules lines 117–126).  The link was missing.
+  `latest-tiny-kb.flr` now states:
+  - `genlPreds(properSubEventTypes, 'shareParts-TypeType')`;
+  - `'shareParts-TypeType'` is symmetric, which gives the inverse form;
+  - `'partwiseDisjoint-TypeType'` is symmetric, as sibling cases state but
+    `meiosisandfertilizationdontalternateinwhichcycle-0` does not;
+  - `superEventTypes` is reflexive (`superEventTypes(AsexualLifeCycle,
+    AsexualLifeCycle)` is a support of two proofs).
+- **A negative `genls` from disjointness**, needed by the three
+  `whichligandtypehasareceptorinthecytoplasm` cases.  It mirrors the
+  core's existing `not(cycIsa)` rule:
+  `sbhlSentence(not(genls(?S, ?G)))` holds when `?S` is under some `?A`,
+  `?A` is disjoint with `?B`, and `?B` is `?G` or above it.
+- **`not(S)` in the cases' own rule bodies is now `\neg (S)`** (69 files).
+  In ErgoAI `not(S)` in a body is the ordinary predicate `not/1` (checked
+  on XSB), and this KB declares `not` an `hlPred`, so such a literal never
+  held.  The core derives negative literals through its `\neg ?P(…)`
+  rules.  Neither change helps on its own; with both, ten of the twelve
+  cases pass, and no other case changes.
 
-Closing these means adding knowledge that is not in the KB, which is a
-decision about the benchmark's content, not a fix.
+**Left for the Ergo developers: `mpfdeactivatingenzymemostlikelydoeswhat-1`
+and `-2`.**  Their proofs substitute equal terms.  Support 2004 is
+`equals(EukaryoticCellCycle, SingleIterationThroughCycleTypeFn(
+TheEukaryoticCellCycle))`, which ergoAIp derives.  The step needs
+`'partwiseDisjoint-TypeType'(CDKDegradation, EukaryoticCellCycle)`, carried
+over from the stated
+`'partwiseDisjoint-TypeType'(CDKDegradation,
+SingleIterationThroughCycleTypeFn(TheEukaryoticCellCycle))`.  The core
+has no equality reasoning at all: `equals` and `rewriteOf` are only
+declared `hlPred`.  Adding substitution of equals is a design decision for
+the KB, not a missing fact.
