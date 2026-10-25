@@ -117,7 +117,7 @@ opt_help(in_process,
           file (faster to start, but KB state can leak between files)").
 opt_help(interactive,
          "Enter the Prolog toplevel when done (with --in_process, the \c
-          engine and the last KB are still loaded)").
+          engine, the last KB and its tables are still loaded)").
 opt_help(verbose,
          "Show the engine's stderr (child processes)").
 opt_help(stack_limit,
@@ -332,7 +332,10 @@ boot(Ms) :-
 		 *          RUN ONE KB          *
 		 *******************************/
 
+%   Tables are abolished before a program, not after it, so that -i can
+%   explore the tables the last program left.
 run_file(File, Opts, Mode, Verdict, Ms, Inf, Phases) :-
+    abolish_all_tables,
     (   golden:golden_file(File, Old), exists_file(Old)
     ->  Mode = golden,
         measure(golden_verdict(File, Verdict), Ms, Inf),

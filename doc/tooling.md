@@ -63,8 +63,10 @@ SUCCESS  : $CPTTest-WhatAreMitoticSpindlesMadeOf 0
 
 `ergoaip_perf.pl -i` enters the Prolog toplevel when it is done, for
 example to profile or to inspect tables.  With `--in_process` the engine
-and the last KB are still loaded.  The KB lives in a generated module,
-`perf_kb1` and so on.
+and the last KB are still loaded, and so are its tables: tables are
+abolished before each program, not after it.  The KB lives in a generated
+module, `perf_kb1` and so on (`gm1` and so on for a program with a golden
+file).
 
 ```
 swipl scripts/ergoaip_perf.pl -i --in_process ErgoEngine/ErgoAI-performance/UDF_tests/fib_like_test.flr
