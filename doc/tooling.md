@@ -2,8 +2,9 @@
 
 This repository evaluates ErgoAI on SWI-Prolog.  This note lists the
 tools and how to run them.  The results are in
-[`ergoaip-performance.md`](ergoaip-performance.md) and
-[`cyc150-issues.md`](cyc150-issues.md).
+[`ergoaip-performance.md`](ergoaip-performance.md),
+[`cyc150-issues.md`](cyc150-issues.md) and
+[`tplp-benchmarks.md`](tplp-benchmarks.md) (ErgoAI/XSB against ergoAIp).
 
 ## Layout
 
@@ -92,6 +93,9 @@ tests load themselves.  Without a path, it runs `cyc150`.
 | `--out=FILE` | also write the results as TSV, a row as soon as each program is done |
 | `--resume` | with `--out`: keep an existing TSV, skip the programs it has a row for and append the others |
 | `--in_process` | run every program in this process (faster to start, but KB state can leak between programs) |
+| `--goal=GOAL` | after loading each file, run the classic Ergo GOAL |
+| `--engine=xsb` | run the programs on ErgoAI/XSB through `runergo` instead of ergoAIp |
+| `--runergo=FILE` | the `runergo` to use (default `ErgoEngine/ErgoAI/runergo`) |
 | `-i`, `--interactive` | enter the Prolog toplevel when done |
 | `-v`, `--verbose` | show the children's stderr |
 
@@ -105,6 +109,36 @@ ergoAIp's `src/golden.pl`.  Any other program is only loaded, which also
 runs its `?-` queries.  Its verdict is `loaded(N)`, where N is the
 number of queries.
 
+**Goal programs and suites.**  A benchmark that is a file plus a query
+runs as a *goal program*: load the file in its own directory, then run
+the goal the way the Ergo listener does.  Its time is split into LOAD
+and SOLVE (the goal).  Give the goal with `--goal`, or list programs in
+a *suite*: a `.pl` file of `bench(File, Goal)` terms, with File
+relative to the suite.  `tplp_benches/perf_suite.pl` is one:
+
+```
+bench('tc/bench_tc_chain.ergo', '%bench_chain(1000000,1)').
+bench('elem_petri/bnergo.ergo', 'generate_net(100000), %bench_elem_net').
+```
+
+The last line a goal prints, normally the benchmark's own timing line,
+goes to the TSV's `output` column.
+
+**ErgoAI on XSB.**  `--engine=xsb` runs the same programs with ErgoAI's
+`runergo`, so the two systems can be compared program by program.  The
+engine times the load and the goal itself (`walltime/1`); the driver
+measures the whole process and its peak memory (`/usr/bin/time`) and
+kills it, with its XSB child, at `--timeout`.  Inferences are not
+available.  A file with a golden file is only loaded, not compared.
+`ErgoEngine/ErgoAI` must be built against the XSB in its `.ergo_paths`;
+see "ErgoAI on XSB" below.
+
+```
+swipl scripts/ergoaip_perf.pl --engine=xsb --out=xsb.tsv tplp_benches/perf_suite.pl
+swipl scripts/ergoaip_perf.pl --table-space=40g --out=swi.tsv tplp_benches/perf_suite.pl
+python3 scripts/perf_report.py --compare xsb.tsv swi.tsv > compare.md
+```
+
 **Output.**  One line per program, then a summary.  Both are printed at
 message level `information`, so they still appear with `swipl -q`.  The
 verdicts:
@@ -113,16 +147,18 @@ verdicts:
 |---|---|
 | `pass` | the output matches the golden file |
 | `diff(M,E)`, `listorder(M)` | M lines are missing and E are extra, or the lines are in a different order |
-| `loaded(N)` | no golden file; the program loaded and its N queries ran |
+| `loaded(N)` | no golden file; the program loaded and its N queries ran (`loaded` on XSB) |
+| `solved`, `failed` | a goal program's goal succeeded or failed |
 | `load_error`, `run_error` | an exception |
 | `out_of_memory` | a resource error, mostly an exhausted table space |
 | `timeout` | `--timeout` was reached; the child was killed |
 | `crashed(Status)` | the child died, e.g. `crashed(killed(9))` after an OOM kill |
 
-**TSV columns:** `file`, `mode` (golden or load), `verdict`, `boot_ms`
-(loading ergoAIp), `run_ms` (the rest of the child), `convert_ms`,
-`load_ms`, `solve_ms` (the `%test` phase), `inferences`,
-`solve_inferences` and `peak_rss_mb` (VmHWM).
+**TSV columns:** `file` (for a goal program `File :: Goal`), `mode`
+(golden, load or goal), `verdict`, `boot_ms` (loading ergoAIp, or
+starting ErgoAI on XSB), `run_ms` (the rest of the child), `convert_ms`,
+`load_ms`, `solve_ms` (the `%test` phase or the goal), `inferences`,
+`solve_inferences`, `peak_rss_mb` (VmHWM), `engine` and `output`.
 
 Examples:
 
@@ -183,6 +219,15 @@ The result classes are:
 `--note` adds a paragraph under the title, for example the setup and the
 commits measured.
 
+```
+python3 scripts/perf_report.py --compare A.tsv B.tsv [--labels XSB,ergoAIp] > cmp.md
+```
+
+puts two runs of the same programs side by side: verdicts, load and
+solve time, the solve-time ratio B/A, the time each program reports
+itself (the last number of its output line), peak memory, and whether
+the output lines agree once their timings are removed.
+
 ## `scripts/ergoaip_cases.pl`: cyc150 against one loaded KB
 
 ```
@@ -223,7 +268,18 @@ To build ErgoAI 3.01 against XSB, run this in `ErgoEngine/ErgoAI`:
 ```
 
 This needs a writable XSB tree.  With GCC 15 or later, add `-std=gnu17`,
-for example through a `gcc` wrapper on `PATH`.  The performance suite's
+for example through a `gcc` wrapper on `PATH`:
+
+```
+mkdir -p /tmp/gccwrap
+printf '#!/bin/sh\nexec /usr/bin/gcc -std=gnu17 "$@"\n' > /tmp/gccwrap/gcc
+chmod +x /tmp/gccwrap/gcc
+PATH=/tmp/gccwrap:$PATH ./makeergo nodocs <path-to>/bin/xsb
+```
+
+Rebuild ErgoAI after rebuilding XSB.  Otherwise its first start
+recompiles ErgoAI's C helpers without the flag, which fails, and
+`runergo` dies with a stack of `consult` frames.  The performance suite's
 own harness, on branch `ergo301-performance`, then prints load and solve
 times per program:
 
