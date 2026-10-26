@@ -484,8 +484,8 @@ load_verdict(File, TO, Verdict) :-
         working_directory(_, Old)).
 
 /*  A goal program: load File, then run the classic Ergo Goal, the way the
-    listener runs it (src/ergoaip_repl.pl): a goal with an update or a
-    transactional call goes through kb_update/2.  Verdict `solved` or
+    listener runs it (src/ergoaip_repl.pl), except that only a goal with
+    an explicit update goes through kb_update/2.  Verdict `solved` or
     `failed`; the two phases are LOAD and SOLVE.                         */
 goal_verdict(File, Goal, TO, Verdict, Phases) :-
     file_directory_name(File, Dir),
@@ -531,8 +531,12 @@ perf_goal(M, Classic0, Goal) :-
         Goal = call_delays(Exec, _)
     ).
 
+/*  Only an explicit update goes through kb_update/2, whose transaction
+    logs every assert (generate_net/1 makes millions) and which abolishes
+    the module's tables afterwards: that is not part of a benchmark, and
+    -i should find the tables.  A `%` call that updates nothing is just a
+    call.                                                                 */
 update_goal(G) :- var(G), !, fail.
-update_goal(tx(_)) :- !.
 update_goal(G) :-
     compound(G),
     functor(G, F, _),

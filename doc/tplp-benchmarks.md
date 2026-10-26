@@ -38,24 +38,26 @@ python3 scripts/perf_report.py --compare xsb.tsv swi.tsv
 ## Results
 
 All 23 programs complete on both systems.  ergoAIp's solve time is
-**2.2 times** XSB's (geometric mean; median 2.35, range 1.00-3.70).
+**2.0 times** XSB's (geometric mean; median 2.35, range 0.92-3.43).
 
 | Family | ergoAIp / XSB | Peak memory at the largest size, XSB → ergoAIp |
 |---|---|---|
-| tc chain, cycle | 2.4-3.7, growing with size | 13.3 → 23.3 GB |
-| tc self_loop | 1.9-2.3 | 13.2 → 23.3 GB |
-| tc frame chain, frame cycle | 2.7-3.3 | 13.3 → 15.6 GB |
-| tc frame self_loop | 1.7-2.1 | 13.3 → 15.6 GB |
-| elem_petri | 1.00-1.05 | 12.3 → 24.3 GB |
+| tc chain, cycle | 2.4-3.4, growing with size | 13.3 → 23.3 GB |
+| tc self_loop | 1.6-2.1 | 13.2 → 23.3 GB |
+| tc frame chain, frame cycle | 2.3-3.1 | 13.3 → 15.6 GB |
+| tc frame self_loop | 1.5-1.9 | 13.3 → 15.6 GB |
+| elem_petri | 0.92-0.96 | 12.3 → 24.2 GB |
 
-- **Transitive closure** is where ergoAIp loses: 70-82 s against 20-37 s
-  at 100M nodes.  The ratio grows from about 2.4 at 1M to 3.6 at 100M
+- **Transitive closure** is where ergoAIp loses: 66-75 s against 20-37 s
+  at 100M nodes.  The ratio grows from about 2.4 at 1M to 3.4 at 100M
   on the chain and the cycle, so the cost is per answer and grows with
   the table.  ergoAIp spends 17 inferences per answer on the plain
   predicate and 19 on the frame form.
-- **Petri-net reachability** runs at the same speed on both: 178 s and
-  182 s for the 2M net.  Both find the same number of states at every
-  size (399,999 up to 7,999,999).
+- **Petri-net reachability** runs at the same speed on both: the
+  reachability time the benchmark reports is 155 s on both for the 2M
+  net, and the whole goal, generation included, is 5-8% faster on
+  ergoAIp (165 s against 178 s).  Both find the same number of states
+  at every size (399,999 up to 7,999,999).
 - **Memory**: ergoAIp needs 1.75 times XSB's peak on the HiLog
   predicates and about twice on elem_petri, but only 1.2 times on the
   frames.  The answer tries of a HiLog predicate are deeper (see the
@@ -65,6 +67,9 @@ All 23 programs complete on both systems.  ergoAIp's solve time is
 - The tc benchmarks print only their timing, so the *Same* column
   checks only that both ran the same instance; for elem_petri it
   compares the state counts.
+- An earlier run sent the `%` goals through ergoAIp's update path
+  (`kb_update/2`), whose transaction and table abolish added up to 10%
+  to ergoAIp's solve times; the numbers here run them as plain queries.
 
 *Solve* is the driver's measurement of the goal; *reported* is the
 time the benchmark prints itself, which leaves out the generation of
@@ -76,31 +81,31 @@ the Petri net.
 
 | Program | XSB | ergoAIp | XSB load s | ergoAIp load s | XSB solve s | ergoAIp solve s | Ratio | XSB reported s | ergoAIp reported s | XSB peak MB | ergoAIp peak MB | Same |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| tc/bench_tc_chain.ergo `%bench_chain(1000000,1)` | solved | solved | 0.05 | 0.03 | 0.26 | 0.60 | 2.35 | 0.25 | 0.58 | 152 | 256 | yes |
-| tc/bench_tc_chain.ergo `%bench_chain(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.06 | 6.63 | 3.22 | 2.06 | 6.45 | 1349 | 2376 | yes |
-| tc/bench_tc_chain.ergo `%bench_chain(100000000,1)` | solved | solved | 0.04 | 0.01 | 20.54 | 73.55 | 3.58 | 20.53 | 71.78 | 13251 | 23282 | yes |
-| tc/bench_tc_cycle.ergo `%bench_cycle(1000000,1)` | solved | solved | 0.41 | 0.04 | 0.20 | 0.69 | 3.39 | 0.20 | 0.68 | 172 | 256 | yes |
-| tc/bench_tc_cycle.ergo `%bench_cycle(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.06 | 6.64 | 3.22 | 2.06 | 6.46 | 1349 | 2378 | yes |
-| tc/bench_tc_cycle.ergo `%bench_cycle(100000000,1)` | solved | solved | 0.05 | 0.01 | 20.10 | 74.45 | 3.70 | 20.10 | 72.69 | 13250 | 23282 | yes |
-| tc/bench_tc_self_loop.ergo `%bench_self_loop(1000000,1)` | solved | solved | 0.44 | 0.03 | 0.39 | 0.72 | 1.86 | 0.39 | 0.70 | 168 | 257 | yes |
-| tc/bench_tc_self_loop.ergo `%bench_self_loop(10000000,1)` | solved | solved | 0.04 | 0.01 | 3.74 | 8.07 | 2.16 | 3.74 | 7.90 | 1350 | 2378 | yes |
-| tc/bench_tc_self_loop.ergo `%bench_self_loop(100000000,1)` | solved | solved | 0.05 | 0.01 | 36.23 | 82.19 | 2.27 | 36.22 | 80.41 | 13249 | 23282 | yes |
-| tc/bench_tc_frame_chain.ergo `%bench_frame_chain(1000000,1)` | solved | solved | 0.43 | 0.03 | 0.23 | 0.61 | 2.70 | 0.23 | 0.60 | 172 | 180 | yes |
-| tc/bench_tc_frame_chain.ergo `%bench_frame_chain(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.20 | 6.38 | 2.90 | 2.20 | 6.25 | 1349 | 1726 | yes |
-| tc/bench_tc_frame_chain.ergo `%bench_frame_chain(100000000,1)` | solved | solved | 0.05 | 0.01 | 21.30 | 69.73 | 3.27 | 21.30 | 68.47 | 13251 | 15602 | yes |
-| tc/bench_tc_frame_cycle.ergo `%bench_frame_cycle(1000000,1)` | solved | solved | 0.04 | 0.03 | 0.22 | 0.59 | 2.71 | 0.21 | 0.57 | 152 | 179 | yes |
-| tc/bench_tc_frame_cycle.ergo `%bench_frame_cycle(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.18 | 6.41 | 2.94 | 2.18 | 6.28 | 1350 | 1726 | yes |
-| tc/bench_tc_frame_cycle.ergo `%bench_frame_cycle(100000000,1)` | solved | solved | 0.05 | 0.01 | 21.16 | 70.10 | 3.31 | 21.16 | 68.84 | 13250 | 15603 | yes |
-| tc/bench_tc_frame_self_loop.ergo `%bench_frame_self_loop(1000000,1)` | solved | solved | 0.05 | 0.03 | 0.40 | 0.68 | 1.71 | 0.39 | 0.66 | 151 | 179 | yes |
-| tc/bench_tc_frame_self_loop.ergo `%bench_frame_self_loop(10000000,1)` | solved | solved | 0.04 | 0.01 | 3.79 | 7.80 | 2.06 | 3.79 | 7.67 | 1349 | 1727 | yes |
-| tc/bench_tc_frame_self_loop.ergo `%bench_frame_self_loop(100000000,1)` | solved | solved | 0.03 | 0.01 | 37.25 | 78.59 | 2.11 | 37.25 | 77.33 | 13250 | 15602 | yes |
-| elem_petri/bnergo.ergo `generate_net(100000), %bench_elem_net` | solved | solved | 0.04 | 0.03 | 8.84 | 8.85 | 1.00 | 7.92 | 8.15 | 635 | 1207 | yes |
-| elem_petri/bnergo.ergo `generate_net(200000), %bench_elem_net` | solved | solved | 0.04 | 0.01 | 17.36 | 17.81 | 1.03 | 15.56 | 16.29 | 1250 | 2400 | yes |
-| elem_petri/bnergo.ergo `generate_net(500000), %bench_elem_net` | solved | solved | 0.05 | 0.01 | 44.02 | 46.07 | 1.05 | 39.07 | 42.00 | 3096 | 6090 | yes |
-| elem_petri/bnergo.ergo `generate_net(1000000), %bench_elem_net` | solved | solved | 0.04 | 0.01 | 88.30 | 90.68 | 1.03 | 77.88 | 81.48 | 6171 | 12194 | yes |
-| elem_petri/bnergo.ergo `generate_net(2000000), %bench_elem_net` | solved | solved | 0.04 | 0.02 | 178.07 | 182.17 | 1.02 | 155.68 | 163.32 | 12325 | 24290 | yes |
+| tc/bench_tc_chain.ergo `%bench_chain(1000000,1)` | solved | solved | 0.05 | 0.01 | 0.26 | 0.61 | 2.38 | 0.25 | 0.60 | 152 | 256 | yes |
+| tc/bench_tc_chain.ergo `%bench_chain(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.06 | 6.22 | 3.02 | 2.06 | 6.22 | 1349 | 2376 | yes |
+| tc/bench_tc_chain.ergo `%bench_chain(100000000,1)` | solved | solved | 0.04 | 0.01 | 20.54 | 68.72 | 3.35 | 20.53 | 68.72 | 13251 | 23284 | yes |
+| tc/bench_tc_cycle.ergo `%bench_cycle(1000000,1)` | solved | solved | 0.41 | 0.01 | 0.20 | 0.64 | 3.10 | 0.20 | 0.64 | 172 | 256 | yes |
+| tc/bench_tc_cycle.ergo `%bench_cycle(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.06 | 6.14 | 2.98 | 2.06 | 6.14 | 1349 | 2378 | yes |
+| tc/bench_tc_cycle.ergo `%bench_cycle(100000000,1)` | solved | solved | 0.05 | 0.01 | 20.10 | 69.03 | 3.43 | 20.10 | 69.03 | 13250 | 23285 | yes |
+| tc/bench_tc_self_loop.ergo `%bench_self_loop(1000000,1)` | solved | solved | 0.44 | 0.01 | 0.39 | 0.63 | 1.64 | 0.39 | 0.63 | 168 | 257 | yes |
+| tc/bench_tc_self_loop.ergo `%bench_self_loop(10000000,1)` | solved | solved | 0.04 | 0.01 | 3.74 | 6.97 | 1.86 | 3.74 | 6.97 | 1350 | 2378 | yes |
+| tc/bench_tc_self_loop.ergo `%bench_self_loop(100000000,1)` | solved | solved | 0.05 | 0.01 | 36.23 | 74.99 | 2.07 | 36.22 | 74.99 | 13249 | 23283 | yes |
+| tc/bench_tc_frame_chain.ergo `%bench_frame_chain(1000000,1)` | solved | solved | 0.43 | 0.01 | 0.23 | 0.53 | 2.35 | 0.23 | 0.53 | 172 | 179 | yes |
+| tc/bench_tc_frame_chain.ergo `%bench_frame_chain(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.20 | 6.02 | 2.74 | 2.20 | 6.02 | 1349 | 1726 | yes |
+| tc/bench_tc_frame_chain.ergo `%bench_frame_chain(100000000,1)` | solved | solved | 0.05 | 0.01 | 21.30 | 65.58 | 3.08 | 21.30 | 65.57 | 13251 | 15603 | yes |
+| tc/bench_tc_frame_cycle.ergo `%bench_frame_cycle(1000000,1)` | solved | solved | 0.04 | 0.01 | 0.22 | 0.61 | 2.83 | 0.21 | 0.61 | 152 | 180 | yes |
+| tc/bench_tc_frame_cycle.ergo `%bench_frame_cycle(10000000,1)` | solved | solved | 0.04 | 0.01 | 2.18 | 6.03 | 2.77 | 2.18 | 6.03 | 1350 | 1726 | yes |
+| tc/bench_tc_frame_cycle.ergo `%bench_frame_cycle(100000000,1)` | solved | solved | 0.05 | 0.01 | 21.16 | 66.17 | 3.13 | 21.16 | 66.17 | 13250 | 15600 | yes |
+| tc/bench_tc_frame_self_loop.ergo `%bench_frame_self_loop(1000000,1)` | solved | solved | 0.05 | 0.01 | 0.40 | 0.60 | 1.52 | 0.39 | 0.60 | 151 | 180 | yes |
+| tc/bench_tc_frame_self_loop.ergo `%bench_frame_self_loop(10000000,1)` | solved | solved | 0.04 | 0.01 | 3.79 | 6.58 | 1.73 | 3.79 | 6.58 | 1349 | 1727 | yes |
+| tc/bench_tc_frame_self_loop.ergo `%bench_frame_self_loop(100000000,1)` | solved | solved | 0.03 | 0.01 | 37.25 | 72.11 | 1.94 | 37.25 | 72.11 | 13250 | 15601 | yes |
+| elem_petri/bnergo.ergo `generate_net(100000), %bench_elem_net` | solved | solved | 0.04 | 0.01 | 8.84 | 8.17 | 0.92 | 7.92 | 7.83 | 635 | 1201 | yes |
+| elem_petri/bnergo.ergo `generate_net(200000), %bench_elem_net` | solved | solved | 0.04 | 0.02 | 17.36 | 16.41 | 0.95 | 15.56 | 15.64 | 1250 | 2379 | yes |
+| elem_petri/bnergo.ergo `generate_net(500000), %bench_elem_net` | solved | solved | 0.05 | 0.02 | 44.02 | 42.17 | 0.96 | 39.07 | 40.03 | 3096 | 6071 | yes |
+| elem_petri/bnergo.ergo `generate_net(1000000), %bench_elem_net` | solved | solved | 0.04 | 0.01 | 88.30 | 81.86 | 0.93 | 77.88 | 77.19 | 6171 | 12116 | yes |
+| elem_petri/bnergo.ergo `generate_net(2000000), %bench_elem_net` | solved | solved | 0.04 | 0.01 | 178.07 | 164.64 | 0.92 | 155.68 | 154.91 | 12325 | 24210 | yes |
 
-Programs both systems completed: 23.  Solve time ratio ergoAIp/XSB: median 2.35, geometric mean 2.17, range 1.00-3.70.
+Programs both systems completed: 23.  Solve time ratio ergoAIp/XSB: median 2.35, geometric mean 2.00, range 0.92-3.43.
 
 ## What it took
 
