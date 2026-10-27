@@ -61,23 +61,25 @@ The script sets `ERGOAIP_LIB_PATH` to `ErgoEngine/ErgoAI/{pkgs,ergo_lib}`
 so that the packages ErgoAI ships can be found, such as the argumentation
 theories.
 
-## Full run (2026-10-25)
+## Full run (2026-10-27)
 
 [`ergoaip-perf-report.md`](ergoaip-perf-report.md) is the complete
 report: all 158 programs, one process each, with result, times and peak
-memory.  It measures ErgoEngine e550962 and ergoAIstudio2 b07b4ae, with a
-40 GB table space and an 1800 s timeout.  Every program runs to the end,
-and none times out:
+memory.  It measures swipl-devel 0612809c6, ErgoEngine e550962 and
+ergoAIstudio2 49eacd8, with a 40 GB table space and an 1800 s timeout.
+Every program runs to the end, and none times out:
 
 | | Programs |
 |---|---|
-| pass | 140 of the 144 cyc150 cases |
+| pass | 142 of the 144 cyc150 cases |
 | loaded (no golden output) | 14: compiletests, CYC_tests, PaulH_tests, UDF_tests, wine_ontology |
 | miss 2 answers | 2 (`mpfdeactivatingenzyme`, equality substitution) |
-| out of memory | 2 (`subeventsofsphase`, 40 GB table space exhausted at 84 GB) |
 
-A typical cyc150 case takes 57 s: 1.7 s load and 34 s solve, at a 14 GB
-peak.  The 144 cases take 9,096 s together.  With the conversion cache
+A typical cyc150 case takes 1.7 s to load and 29 s to solve, at a
+9.8 GB peak.  Compared with the previous run (2026-10-25), the SWI-Prolog
+trie memory fixes cut cyc150 peak memory by 31% and solve time by 14%,
+and the two `subeventsofsphase` cases, which ran out of memory at 84 GB,
+now pass at 54 GB; the report lists the changes.  With the conversion cache
 warm, the compiletests KBs load in 28–276 s with at most 1.6 GB.  The
 2026-10-23 table below, with up to 18.5 GB, predates both that cache
 and the later ergoAIp changes; which of the two lowered the peaks has

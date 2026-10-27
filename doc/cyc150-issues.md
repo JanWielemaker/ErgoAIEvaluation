@@ -33,13 +33,14 @@ e550962; ergoAIp at `ergoAIstudio2` b07b4ae):
 - **140 pass** with `scripts/ergoaip_cases.pl` (the core loaded once,
   each case solved in a snapshot, 40 GB table space), including the two
   `subeventsofsphase` cases (issue 11);
-- the full per-process run, `ergoaip-perf-report.md`, also has **140
-  pass**.  There the two `subeventsofsphase` cases exhaust the 40 GB
-  table space instead, and `amitotictissuehasnocellsinthecellcycle-0`
-  passes;
+- the full per-process run, `ergoaip-perf-report.md`, has **142 pass**
+  since the SWI-Prolog trie memory fixes (2026-10-27, swipl-devel
+  0612809c6, ergoAIstudio2 49eacd8): the two `subeventsofsphase` cases
+  now pass there too;
 - the two `mpfdeactivatingenzyme` cases miss 2 answers: they need
   equality substitution (issue 13);
-- run on its own, a typical case solves in about 34 s at a 14 GB peak.
+- run on its own, a typical case solves in about 29 s at a 9.8 GB peak
+  (was 34 s at 14 GB).
 
 44 cases passed before issues 8–10 were fixed, 102 before issue 12, and
 131 before the knowledge additions of issue 13.
@@ -403,6 +404,10 @@ space.  In the per-process run, however, both exhaust the 40 GB at an
 `%test`, which runs `%pretest` twice, with `mustDefine` on and then off.
 Whether a larger table space suffices has not been tried: the machine
 has 109 GB.
+
+Since the SWI-Prolog trie memory fixes (swipl-devel 1dac533c2,
+14ba39be3, 10205aec9), both pass in the per-process run with the same
+40 GB table space: 180 s solve at a 54 GB peak (2026-10-27).
 
 ## 12. Open HiLog applications in rule heads (fixed in ergoAIp)
 
