@@ -8,8 +8,12 @@
     Options:
         --threads=N      solve N cases concurrently (default 1)
         --table-space=Sz table space per thread (default 8g)
-        --out=File       also write the results as TSV
+        --out=File       also write the results as TSV, a row as soon as
+                         its case is done, so a crash keeps the finished cases
         --max=N          only the first N cases
+        --agc-margin=N   set the agc_margin flag (atom-GC frequency)
+        --shard=K/N      of those, only the cases whose index is K modulo N,
+                         to split them over N processes
 
     Every cyc150 program is the same 18-line header (argumentation theory,
     `\overrides` rules and the `[+…]` loads of the shared core KB) followed
@@ -25,7 +29,8 @@
     a case passes when that line is the one its golden file expects.
 
     Reported per case: the time to ADD the case (convert, compile, install)
-    and the time to SOLVE it, with the inferences of the solve.
+    and the time to SOLVE it, with the inferences and the thread CPU time
+    of the solve.
 */
 
 :- module(ergoaip_cases, []).
@@ -58,23 +63,35 @@ main(Argv) :-
     %  does not work, so load it now
     lexer_bridge:ensure_lexer,
     ( memberchk(threads(NT), Opts) -> true ; NT = 1 ),
+    (   memberchk(agc_margin(AGCM), Opts)
+    ->  set_prolog_flag(agc_margin, AGCM)
+    ;   true ),
     split_cases(Dir, Base, Cases0),
     (   memberchk(max(Max), Opts), length(Cases0, L0), L0 > Max
-    ->  length(Cases, Max), append(Cases, _, Cases0)
-    ;   Cases = Cases0 ),
+    ->  length(Cases1, Max), append(Cases1, _, Cases0)
+    ;   Cases1 = Cases0 ),
+    (   memberchk(shard(Shard), Opts)
+    ->  shard(Shard, Cases1, Cases)
+    ;   Cases = Cases1 ),
     length(Cases, NC),
     format("ergoaip_cases: ~d cases, ~d thread(s)~n", [NC, NT]),
     working_directory(_, Dir),
     measure(ergoaip_compiler:load_ergo(Base, kb, _), LoadMs, LoadInf),
     delete_file(Base),
     format("base KB loaded in ~1f s, ~D inferences~n", [LoadMs/1000, LoadInf]),
+    (   memberchk(out(Out), Opts) -> open_tsv(Out) ; true ),
     get_time(T0),
     set_prolog_flag(cpu_count, NT),         % concurrent_maplist/3's pool size
     concurrent_maplist(run_case(TSBytes), Cases, Results),
     get_time(T1),
     maplist(report, Results),
     summary(Results, (T1-T0)*1000),
-    (   memberchk(out(Out), Opts) -> write_tsv(Out, Results) ; true ).
+    (   memberchk(out(Out), Opts) -> close_tsv(Out) ; true ).
+
+shard(Spec, All, Cases) :-
+    atomic_list_concat([KA,NA], /, Spec),
+    atom_number(KA, K), atom_number(NA, N),
+    findall(C, ( nth0(I, All, C), I mod N =:= K ), Cases).
 
 set_lib_path(Root) :-
     (   getenv('ERGOAIP_LIB_PATH', _) -> true
@@ -111,7 +128,9 @@ split_cases(Dir, Base, Cases) :-
     Files = [First|_],
     read_file_to_string(First, S0, []),
     header_split(S0, Header, _),
-    directory_file_path(Dir, '.cases_base.flr', Base),
+    current_prolog_flag(pid, Pid),          % concurrent drivers do not clash
+    format(atom(BaseName), '.cases_base_~d.flr', [Pid]),
+    directory_file_path(Dir, BaseName, Base),
     write_file(Base, Header),
     tmp_file(cases, TmpDir), make_directory(TmpDir),
     maplist(case_file(Dir, TmpDir), Files, Cases).
@@ -143,19 +162,25 @@ write_file(F, S) :-
 		 *          RUN A CASE          *
 		 *******************************/
 
-run_case(TSBytes, case(File, CaseFile, Golden),
-         result(File, Verdict, AddMs, SolveMs, SolveInf)) :-
+run_case(TSBytes, case(File, CaseFile, Golden), Result) :-
+    Result = result(File, Verdict, AddMs, SolveMs, SolveInf, CpuMs),
     set_prolog_flag(table_space, TSBytes),
     catch(snapshot(solve_case(CaseFile, Golden, Verdict,
-                              AddMs, SolveMs, SolveInf)),
-          E, ( Verdict = error(E), AddMs = 0, SolveMs = 0, SolveInf = 0 )),
-    abolish_all_tables.
+                              AddMs, SolveMs, SolveInf, CpuMs)),
+          E, ( Verdict = error(E), AddMs = 0, SolveMs = 0, SolveInf = 0,
+               CpuMs = 0 )),
+    abolish_all_tables,
+    tsv_row(Result).
 
-solve_case(CaseFile, Golden, Verdict, AddMs, SolveMs, SolveInf) :-
+solve_case(CaseFile, Golden, Verdict, AddMs, SolveMs, SolveInf, CpuMs) :-
     measure(ergoaip_compiler:load_spec(kb, +CaseFile), AddMs, _),
+    statistics(cputime, C0),                % of this thread
     measure(with_output_to(string(Out),
                            ( catch(once(kb:pretest), E, true) -> true ; true )),
             SolveMs, SolveInf),
+    statistics(cputime, C1),
+    CpuMs is (C1-C0)*1000,
+    (   getenv('ERGOAIP_TABLE_STATS', _) -> table_stats ; true ),
     (   nonvar(E) -> Verdict = run_error
     ;   verdict(Out, Golden, Verdict) ).
 
@@ -171,29 +196,66 @@ verdict(Out, Golden, Verdict) :-
         ;   Verdict = diff )
     ;   Verdict = no_golden ).
 
+table_stats :-
+    findall(K, ( current_table(M:V, _),
+                 functor(V, N, A),
+                 (   predicate_property(M:V, (dynamic)) -> T = (dynamic) ; T = tabled ),
+                 K = T-(M:N/A) ), Ks0),
+    msort(Ks0, Ks), clumped(Ks, KCs),
+    pairs_values_sort(KCs, Sorted),
+    length(Ks, Total),
+    format("tables: ~D~n", [Total]),
+    forall(( member(C-K, Sorted), C > 1000 ), format("  ~D~t~12| ~q~n", [C, K])).
+
+pairs_values_sort(KCs, Sorted) :-
+    findall(C-K, member(K-C, KCs), L0), sort(1, @>=, L0, Sorted).
+
 		 /*******************************
 		 *            REPORT            *
 		 *******************************/
 
-report(result(File, V, AddMs, SolveMs, Inf)) :-
+report(result(File, V, AddMs, SolveMs, Inf, CpuMs)) :-
     file_base_name(File, B),
-    format("~w~t~84| ~w~t~10+ add ~t~1f s~8+  solve ~t~2f s~9+ ~t~D inf~16+~n",
-           [B, V, AddMs/1000, SolveMs/1000, Inf]).
+    format("~w~t~84| ~w~t~10+ add ~t~1f s~8+  solve ~t~2f s~9+ \c
+            cpu ~t~2f s~9+ ~t~D inf~16+~n",
+           [B, V, AddMs/1000, SolveMs/1000, CpuMs/1000, Inf]).
 
 summary(Rs, WallMs) :-
-    aggregate_all(sum(A), member(result(_,_,A,_,_), Rs), AddMs),
-    aggregate_all(sum(S), member(result(_,_,_,S,_), Rs), SolveMs),
-    findall(V, member(result(_,V,_,_,_), Rs), Vs0), msort(Vs0, Vs),
+    aggregate_all(sum(A), member(result(_,_,A,_,_,_), Rs), AddMs),
+    aggregate_all(sum(S), member(result(_,_,_,S,_,_), Rs), SolveMs),
+    findall(V, member(result(_,V,_,_,_,_), Rs), Vs0), msort(Vs0, Vs),
     clumped(Vs, Counts),
     format("~nwall ~1f s for all cases; sum of add ~1f s, sum of solve ~1f s~n",
            [WallMs/1000, AddMs/1000, SolveMs/1000]),
-    forall(member(K-C, Counts), format("  ~w~t~20|~d~n", [K, C])).
+    forall(member(K-C, Counts), format("  ~w~t~20|~d~n", [K, C])),
+    statistics(agc, AGC), statistics(agc_time, AGCTime),
+    statistics(agc_gained, AGCGained), statistics(atoms, Atoms),
+    format("atom GC: ~D runs, ~2f s, ~D atoms reclaimed, ~D atoms now~n",
+           [AGC, AGCTime, AGCGained, Atoms]),
+    (   getenv('ERGOAIP_BLOB_STATS', _)
+    ->  aggregate_all(count, current_blob(_, _), _),
+        findall(T, current_blob(_, T), Ts0), msort(Ts0, Ts), clumped(Ts, TCs),
+        forall(member(T-C, TCs), format("  blob ~w~t~30|~D~n", [T, C]))
+    ;   true ).
 
-write_tsv(File, Rs) :-
-    setup_call_cleanup(
-        open(File, write, S),
-        ( format(S, "file\tverdict\tadd_ms\tsolve_ms\tsolve_inferences~n", []),
-          forall(member(result(F, V, A, Sv, I), Rs),
-                 format(S, "~w\t~w\t~0f\t~0f\t~d~n", [F, V, A, Sv, I])) ),
-        close(S)),
+:- dynamic tsv_stream/1.
+
+open_tsv(File) :-
+    open(File, write, S),
+    format(S, "file\tverdict\tadd_ms\tsolve_ms\tsolve_inferences\tsolve_cpu_ms~n",
+           []),
+    flush_output(S),
+    asserta(tsv_stream(S)).
+
+tsv_row(result(F, V, A, Sv, I, C)) :-
+    (   tsv_stream(S)
+    ->  with_mutex(ergoaip_cases_tsv,
+                   ( format(S, "~w\t~q\t~0f\t~0f\t~d\t~0f~n", [F, V, A, Sv, I, C]),
+                     flush_output(S) ))
+    ;   true
+    ).
+
+close_tsv(File) :-
+    retract(tsv_stream(S)),
+    close(S),
     format("wrote ~w~n", [File]).
