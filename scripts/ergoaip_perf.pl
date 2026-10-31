@@ -41,6 +41,7 @@
 :- use_module(library(gensym)).
 :- use_module(library(occurs)).
 :- use_module(library(yall)).
+:- use_module(library(statistics)).
 
 :- initialization(main, main).
 
@@ -95,6 +96,7 @@ opt_type(goal,        goal,        atom).
 opt_type(runergo,     runergo,     file).
 opt_type(child,       child,       boolean).
 opt_type(result,      result,      file).
+opt_type(profile,     profile,     boolean).
 
 opt_meta(timeout,     'SECS').
 opt_meta(stack_limit, 'SIZE').
@@ -133,6 +135,12 @@ opt_help(in_process,
 opt_help(interactive,
          "Enter the Prolog toplevel when done (with --in_process, the \c
           engine, the last KB and its tables are still loaded)").
+opt_help(profile,
+         "Run the solve step (a golden file's %test, or --goal) under \c
+          profile/1.  Implies --in_process and, unless --no-interactive, \c
+          --interactive: with a display the report is the graphical \c
+          profiler, which needs the process to stay.  Timings include \c
+          the profiler's overhead").
 opt_help(verbose,
          "Show the engine's stderr (child processes)").
 opt_help(stack_limit,
@@ -165,7 +173,8 @@ main(Argv) :-
     argv_options(Argv, Paths0, Opts0),
     check_sizes(Opts0),
     default_options(Defs),
-    merge_options(Opts0, Defs, Opts),
+    merge_options(Opts0, Defs, Opts1),
+    profile_options(Opts1, Opts),
     (   option(child(true), Opts)
     ->  child(Paths0, Opts)
     ;   set_lib_path,
@@ -193,6 +202,19 @@ main(Argv) :-
         ->  cli_enable_development_system
         ;   true
         )
+    ).
+
+/*  --profile runs in this process, so the report is not lost with a
+    child's output, and stays in the toplevel so that the graphical
+    profiler's window survives the run.                                  */
+profile_options(Opts0, Opts) :-
+    (   option(profile(true), Opts0)
+    ->  (   option(interactive(_), Opts0)
+        ->  Extra = [in_process(true)]
+        ;   Extra = [in_process(true), interactive(true)]
+        ),
+        merge_options(Extra, Opts0, Opts)
+    ;   Opts = Opts0
     ).
 
 /*  ergoAIp finds the packages that ErgoAI ships (?- [prettyprint>>pp],
@@ -388,9 +410,34 @@ run_in_process(Item, Opts0,
     ),
     set_table_space(Opts),
     boot(BootMs),
+    set_profiling(Opts),
     run_file(File, Opts, Mode, Verdict, Ms, Inf, Phases0),
     peak_rss_kb(KB),
     Phases = [peak_rss-kb(KB) | Phases0].
+
+/*  --profile runs the solve step under profile/1: solve/1 for a goal
+    program, and golden.pl's %test step, wrapped here so that golden.pl
+    need not know about it.                                              */
+:- dynamic profiling/0.
+
+set_profiling(Opts) :-
+    retractall(profiling),
+    (   option(profile(true), Opts)
+    ->  assertz(profiling),
+        (   current_predicate_wrapper(golden:run_test_in_cwd(_,_,_),
+                                      ergoaip_perf_profile, _, _)
+        ->  true
+        ;   wrap_predicate(golden:run_test_in_cwd(_,_,_),
+                           ergoaip_perf_profile, W, ergoaip_perf:solve(W))
+        )
+    ;   true
+    ).
+
+solve(Goal) :-
+    (   profiling
+    ->  profile(Goal)
+    ;   call(Goal)
+    ).
 
 set_table_space(Opts) :-
     option(table_space(TS), Opts),
@@ -504,7 +551,7 @@ run_goal(File, M, Goal, State) :-
     nb_setarg(2, State, [load-ms(LMs, LInf)]),
     nb_setarg(1, State, run_error),
     perf_goal(M, Goal, G),
-    measure(( call(G) -> V = solved ; V = failed ), SMs, SInf),
+    measure(( solve(G) -> V = solved ; V = failed ), SMs, SInf),
     nb_setarg(1, State, V),
     nb_setarg(2, State, [load-ms(LMs, LInf), test-ms(SMs, SInf)]).
 
